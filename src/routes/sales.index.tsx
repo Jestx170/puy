@@ -1,0 +1,285 @@
+import { useMemo, useState } from "react";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import {
+  Download,
+  Plus,
+  Receipt,
+  Banknote,
+  TrendingUp,
+  Users,
+  Eye,
+  Printer,
+  Copy,
+  RotateCcw,
+} from "lucide-react";
+import { toast } from "sonner";
+
+import { PageHeader } from "@/components/layout/PageHeader";
+import { StatCard } from "@/components/common/StatCard";
+import { StatusBadge } from "@/components/common/StatusBadge";
+import { Toolbar, FilterSelect, Pagination, usePagination } from "@/components/common/DataToolbar";
+import { EmptyState } from "@/components/common/EmptyState";
+import { Button } from "@/components/ui/button";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+  ContextMenuSeparator,
+} from "@/components/ui/context-menu";
+import { compactCurrency, currency, orders } from "@/data/mock";
+import { exportToCSV } from "@/lib/export";
+
+// ตัวกรองที่รับผ่าน URL — ทุก field เป็น optional เพื่อให้ <Link to="/sales"> ไม่ต้องส่ง search
+interface SalesSearch {
+  status?: string | undefined;
+  q?: string | undefined;
+}
+
+export const Route = createFileRoute("/sales/")({
+  // รับ filter จาก URL เช่น /sales?status=pending (ใช้จากการแจ้งเตือน)
+  validateSearch: (search: SalesSearch): SalesSearch => ({
+    status: typeof search.status === "string" ? search.status : undefined,
+    q: typeof search.q === "string" ? search.q : undefined,
+  }),
+  head: () => ({
+    meta: [
+      { title: "การขาย — ปุ๋ยไทย CRM" },
+      {
+        name: "description",
+        content:
+          "พื้นที่ทำงานฝ่ายขาย: สถิติยอดขาย คำสั่งขายทั้งหมด พร้อมตัวกรองตามสถานะ วันที่ ลูกค้า และพนักงานขาย",
+      },
+      { property: "og:title", content: "การขาย — ปุ๋ยไทย CRM" },
+      { property: "og:description", content: "ติดตามคำสั่งขายและผลงานทีมขาย" },
+      { property: "og:url", content: "/sales" },
+    ],
+    links: [{ rel: "canonical", href: "/sales" }],
+  }),
+  component: SalesPage,
+});
+
+function SalesPage() {
+  // ค่าเริ่มต้นของตัวกรองมาจาก URL (ถ้ามี)
+  const search = Route.useSearch();
+  const [query, setQuery] = useState(search.q ?? "");
+  const [status, setStatus] = useState(search.status ?? "all");
+  const [person, setPerson] = useState("all");
+  const navigate = useNavigate();
+
+  const people = Array.from(new Set(orders.map((o) => o.salesperson)));
+
+  const rows = useMemo(
+    () =>
+      orders.filter(
+        (o) =>
+          (status === "all" || o.status === status) &&
+          (person === "all" || o.salesperson === person) &&
+          (o.code.toLowerCase().includes(query.toLowerCase()) || o.customer.includes(query)),
+      ),
+    [query, status, person],
+  );
+
+  const { slice, page, pages, setPage, total, perPage } = usePagination(rows, 10);
+
+  return (
+    <div className="space-y-5 p-4 sm:p-6">
+      <PageHeader
+        title="การขาย"
+        description="คำสั่งขายทั้งหมดจากทุกช่องทาง · POS, ออนไลน์ และตัวแทนขาย"
+        crumbs={[{ label: "การขาย" }]}
+        actions={
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              className="rounded-xl"
+              onClick={() => {
+                const date = new Date().toISOString().slice(0, 10);
+                exportToCSV(
+                  rows.map((o) => ({
+                    เลขที่: o.code,
+                    ลูกค้า: o.customer,
+                    วันที่: o.date,
+                    ยอดรวม: o.total,
+                    รายการ: o.items,
+                    สถานะ: o.status,
+                    ช่องทาง: o.channel,
+                    พนักงาน: o.salesperson,
+                    การชำระ: o.payment,
+                  })),
+                  `รายงานการขาย-${date}.csv`,
+                );
+              }}
+            >
+              <Download className="size-4" /> ส่งออก
+            </Button>
+            <Button size="sm" className="rounded-xl" asChild>
+              <Link to="/pos">
+                <Plus className="size-4" /> สร้างคำสั่งขาย
+              </Link>
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard
+          label="ยอดขายเดือนนี้"
+          value={compactCurrency(1180000)}
+          delta={8.1}
+          hint="94% ของเป้า"
+          icon={Banknote}
+        />
+        <StatCard
+          label="จำนวนคำสั่งขาย"
+          value={String(orders.length)}
+          delta={5.4}
+          hint="เดือนนี้"
+          icon={Receipt}
+        />
+        <StatCard
+          label="มูลค่าเฉลี่ยต่อบิล"
+          value={currency(4820)}
+          delta={2.7}
+          hint="เพิ่มขึ้นจากเดือนก่อน"
+          icon={TrendingUp}
+          tone="info"
+        />
+        <StatCard
+          label="ลูกค้าที่ซื้อซ้ำ"
+          value="63%"
+          delta={1.9}
+          hint="ภายใน 90 วัน"
+          icon={Users}
+        />
+      </div>
+
+      <div className="card-soft overflow-hidden">
+        <div className="border-b p-3">
+          <Toolbar
+            query={query}
+            onQuery={setQuery}
+            placeholder="ค้นหาเลขที่บิลหรือชื่อลูกค้า"
+            filters={
+              <>
+                <FilterSelect
+                  value={status}
+                  onChange={setStatus}
+                  label="สถานะ"
+                  className="w-[150px]"
+                  options={[
+                    { value: "all", label: "ทุกสถานะ" },
+                    { value: "paid", label: "ชำระแล้ว" },
+                    { value: "pending", label: "รอดำเนินการ" },
+                    { value: "processing", label: "กำลังจัดส่ง" },
+                    { value: "cancelled", label: "ยกเลิก" },
+                    { value: "refunded", label: "คืนเงิน" },
+                  ]}
+                />
+                <FilterSelect
+                  value={person}
+                  onChange={setPerson}
+                  label="พนักงานขาย"
+                  icon={false}
+                  className="w-[160px]"
+                  options={[
+                    { value: "all", label: "พนักงานขายทั้งหมด" },
+                    ...people.map((p) => ({ value: p, label: p })),
+                  ]}
+                />
+              </>
+            }
+          />
+        </div>
+
+        {slice.length === 0 ? (
+          <EmptyState
+            icon={Receipt}
+            title="ไม่พบคำสั่งขาย"
+            description="ลองปรับตัวกรองหรือช่วงวันที่"
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>เลขที่</TableHead>
+                  <TableHead>ลูกค้า</TableHead>
+                  <TableHead>วันที่</TableHead>
+                  <TableHead>ช่องทาง</TableHead>
+                  <TableHead>พนักงานขาย</TableHead>
+                  <TableHead>การชำระเงิน</TableHead>
+                  <TableHead>สถานะ</TableHead>
+                  <TableHead className="text-right">ยอดรวม</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {slice.map((o) => (
+                  <ContextMenu key={o.id}>
+                    <ContextMenuTrigger asChild>
+                      <TableRow className="cursor-context-menu">
+                        <TableCell className="font-medium">
+                          <Link
+                            to="/sales/$orderId"
+                            params={{ orderId: o.id }}
+                            className="hover:text-primary"
+                          >
+                            {o.code}
+                          </Link>
+                        </TableCell>
+                        <TableCell className="max-w-40 truncate text-sm">{o.customer}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{o.date}</TableCell>
+                        <TableCell className="text-xs">{o.channel}</TableCell>
+                        <TableCell className="text-xs">{o.salesperson}</TableCell>
+                        <TableCell className="text-xs">{o.payment}</TableCell>
+                        <TableCell>
+                          <StatusBadge status={o.status} />
+                        </TableCell>
+                        <TableCell className="text-right font-semibold tabular-nums">
+                          {currency(o.total)}
+                        </TableCell>
+                      </TableRow>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="rounded-xl">
+                      <ContextMenuItem
+                        onSelect={() =>
+                          navigate({ to: "/sales/$orderId", params: { orderId: o.id } })
+                        }
+                      >
+                        <Eye className="size-4" /> ดูรายละเอียด
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => toast("พิมพ์ใบเสร็จ: " + o.code)}>
+                        <Printer className="size-4" /> พิมพ์ใบเสร็จ
+                      </ContextMenuItem>
+                      <ContextMenuItem onSelect={() => toast.success("ทำสำเนาคำสั่งขายแล้ว")}>
+                        <Copy className="size-4" /> ทำสำเนา
+                      </ContextMenuItem>
+                      <ContextMenuSeparator />
+                      <ContextMenuItem
+                        className="text-destructive"
+                        onSelect={() => toast.success("ยกเลิกคำสั่งขาย: " + o.code)}
+                      >
+                        <RotateCcw className="size-4" /> ยกเลิกคำสั่งขาย
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <Pagination page={page} pages={pages} total={total} perPage={perPage} onPage={setPage} />
+      </div>
+    </div>
+  );
+}
