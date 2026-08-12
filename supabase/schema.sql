@@ -406,7 +406,59 @@ select
      where date_trunc('month', date) = date_trunc('month', current_date)
        and status not in ('cancelled','refunded')) as month_sales,
   (select count(*) from public.orders
-     where status = 'pending') as pending_orders;
+     where status = 'pending') as pending_orders,
+  -- กำไรรวมวันนี้ (ยอดขาย - ต้นทุนสินค้าขาย)
+  (select coalesce(sum(oi.subtotal - (oi.qty * oi.cost)), 0)
+     from public.order_items oi
+     join public.orders o on oi.order_id = o.id
+     where o.date = current_date and o.status not in ('cancelled','refunded')) as today_profit,
+  -- กำไรรวมเดือนนี้
+  (select coalesce(sum(oi.subtotal - (oi.qty * oi.cost)), 0)
+     from public.order_items oi
+     join public.orders o on oi.order_id = o.id
+     where date_trunc('month', o.date) = date_trunc('month', current_date)
+       and o.status not in ('cancelled','refunded')) as month_profit,
+  -- ต้นทุนสินค้าขายเดือนนี้ (COGS)
+  (select coalesce(sum(oi.qty * oi.cost), 0)
+     from public.order_items oi
+     join public.orders o on oi.order_id = o.id
+     where date_trunc('month', o.date) = date_trunc('month', current_date)
+       and o.status not in ('cancelled','refunded')) as month_cogs;
+
+-- กำไรรายวัน (7 วันล่าสุด)
+create or replace view public.v_profit_by_day as
+select
+  o.date,
+  to_char(o.date, 'Dy') as day_short,
+  extract(isodow from o.date)::int as day_idx,
+  coalesce(sum(oi.subtotal), 0) as revenue,
+  coalesce(sum(oi.qty * oi.cost), 0) as cogs,
+  coalesce(sum(oi.subtotal - (oi.qty * oi.cost)), 0) as profit
+from public.orders o
+join public.order_items oi on oi.order_id = o.id
+where o.date >= current_date - interval '6 days'
+  and o.status not in ('cancelled','refunded')
+group by o.date, day_short, day_idx
+order by day_idx;
+
+-- กำไรรายเดือน (8 เดือนล่าสุด)
+create or replace view public.v_profit_by_month as
+select
+  to_char(date_trunc('month', o.date), 'YYYY-MM') as month_key,
+  case extract(month from o.date)
+    when 1 then 'ม.ค.' when 2 then 'ก.พ.' when 3 then 'มี.ค.' when 4 then 'เม.ย.'
+    when 5 then 'พ.ค.' when 6 then 'มิ.ย.' when 7 then 'ก.ค.' when 8 then 'ส.ค.'
+    when 9 then 'ก.ย.' when 10 then 'ต.ค.' when 11 then 'พ.ย.' when 12 then 'ธ.ค.'
+  end as month,
+  coalesce(sum(oi.subtotal), 0) as revenue,
+  coalesce(sum(oi.qty * oi.cost), 0) as cogs,
+  coalesce(sum(oi.subtotal - (oi.qty * oi.cost)), 0) as profit
+from public.orders o
+join public.order_items oi on oi.order_id = o.id
+where o.date >= date_trunc('month', current_date) - interval '7 months'
+  and o.status not in ('cancelled','refunded')
+group by month_key, month
+order by month_key;
 
 -- ============================================================
 -- Seed: customers (12 ราย)

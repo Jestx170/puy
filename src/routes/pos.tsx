@@ -42,6 +42,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/common/EmptyState";
+import { printReceipt } from "@/lib/print";
 import { categories, currency, customers, products, type Product } from "@/data/mock";
 
 export const Route = createFileRoute("/pos")({
@@ -123,11 +124,42 @@ function PosPage() {
       toast.error("ตะกร้าว่าง กรุณาเลือกสินค้า");
       return;
     }
+    printCart();
     toast.success(`รับชำระ ${currency(total)} สำเร็จ`, {
-      description: "พิมพ์ใบเสร็จอัตโนมัติแล้ว",
+      description: "เปิดหน้าต่างพิมพ์ใบเสร็จแล้ว",
     });
     setCart([]);
     setDiscount(0);
+  };
+
+  const printCart = () => {
+    if (cart.length === 0) {
+      toast.error("ตะกร้าว่าง ไม่สามารถพิมพ์ใบเสร็จได้");
+      return;
+    }
+    const cust = customers.find((c) => c.id === customerId);
+    const methodLabel = paymentMethods.find((m) => m.key === method)?.label ?? method;
+    printReceipt({
+      storeName: "ปุ๋ยไทย CRM",
+      storeAddress: "123 ถนนเกษตร ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000",
+      storePhone: "043-123-456",
+      receiptNo: `POS-${Date.now()}`,
+      date: new Date().toLocaleString("th-TH"),
+      customer: cust?.name,
+      channel: "POS",
+      lines: cart.map((l) => ({
+        name: l.product.name,
+        qty: l.qty,
+        unit: l.product.unit,
+        price: l.product.price,
+      })),
+      subtotal,
+      discountPct: discount,
+      discountAmt: discountAmt,
+      vat,
+      total,
+      payment: methodLabel,
+    });
   };
 
   return (
@@ -242,6 +274,7 @@ function PosPage() {
           onDiscount={setDiscount}
           onMethod={setMethod}
           onCheckout={checkout}
+          onPrint={printCart}
         />
       </aside>
 
@@ -274,6 +307,7 @@ function PosPage() {
                 checkout();
                 setCartOpen(false);
               }}
+              onPrint={printCart}
               compact
             />
           </SheetContent>
@@ -298,6 +332,7 @@ function CartPanel({
   onDiscount,
   onMethod,
   onCheckout,
+  onPrint,
   compact = false,
 }: {
   cart: CartLine[];
@@ -312,6 +347,7 @@ function CartPanel({
   onDiscount: (v: number) => void;
   onMethod: (m: string) => void;
   onCheckout: () => void;
+  onPrint: () => void;
   compact?: boolean;
 }) {
   return (
@@ -444,7 +480,8 @@ function CartPanel({
             variant="outline"
             size="icon"
             className="size-11 rounded-xl"
-            onClick={() => toast("ส่งใบเสร็จไปยังเครื่องพิมพ์")}
+            disabled={cart.length === 0}
+            onClick={onPrint}
           >
             <Printer className="size-4" />
           </Button>

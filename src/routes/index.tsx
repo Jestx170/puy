@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -25,6 +26,8 @@ import {
   PackageSearch,
   Bell,
   Loader2,
+  TrendingUp,
+  PiggyBank,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -46,7 +49,13 @@ import {
   salesByDay as seedSalesByDay,
   topProducts as seedTopProducts,
 } from "@/data/mock";
-import { dashboardApi, type BestCustomer, type TopProduct } from "@/lib/api/dashboard";
+import {
+  dashboardApi,
+  type BestCustomer,
+  type TopProduct,
+  type ProfitByDay,
+  type ProfitByMonth,
+} from "@/lib/api/dashboard";
 import { ordersApi } from "@/lib/api/orders";
 import { activitiesApi } from "@/lib/api/activities";
 import { notificationsApi } from "@/lib/api/notifications";
@@ -111,7 +120,22 @@ function Widget({
   );
 }
 
+// seed fallback สำหรับกราฟกำไร
+const seedProfitByDay: ProfitByDay[] = seedSalesByDay.map((d) => ({
+  day: d.day,
+  revenue: d.sales,
+  cogs: Math.round(d.sales * 0.72),
+  profit: Math.round(d.sales * 0.28),
+}));
+const seedProfitByMonth: ProfitByMonth[] = seedRevenueTrend.map((d) => ({
+  month: d.month,
+  revenue: d.revenue,
+  cogs: Math.round(d.revenue * 0.7),
+  profit: Math.round(d.revenue * 0.3),
+}));
+
 function Dashboard() {
+  const [profitView, setProfitView] = useState<"day" | "month">("day");
   // ดึงข้อมูลจาก Supabase พร้อม fallback เป็น mock
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats"],
@@ -157,6 +181,22 @@ function Dashboard() {
     queryFn: () => notificationsApi.list(3),
     placeholderData: seedNotifications,
   });
+  const { data: profitByDay = seedProfitByDay } = useQuery({
+    queryKey: ["profit-by-day"],
+    queryFn: () => dashboardApi.profitByDay(),
+    placeholderData: seedProfitByDay,
+  });
+  const { data: profitByMonth = seedProfitByMonth } = useQuery({
+    queryKey: ["profit-by-month"],
+    queryFn: () => dashboardApi.profitByMonth(),
+    placeholderData: seedProfitByMonth,
+  });
+
+  const profitData = profitView === "day" ? profitByDay : profitByMonth;
+  const monthMargin =
+    stats && stats.monthSales > 0 ? Math.round((stats.monthProfit / stats.monthSales) * 100) : 0;
+  const todayMargin =
+    stats && stats.todaySales > 0 ? Math.round((stats.todayProfit / stats.todaySales) * 100) : 0;
 
   return (
     <div className="space-y-6 p-4 sm:p-6">
@@ -199,7 +239,7 @@ function Dashboard() {
         }
       />
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="ยอดขายวันนี้"
           value={currency(stats?.todaySales ?? 91240)}
@@ -214,6 +254,23 @@ function Dashboard() {
           hint="94% ของเป้า"
           icon={Wallet}
         />
+        <StatCard
+          label="กำไรวันนี้"
+          value={currency(stats?.todayProfit ?? 25520)}
+          delta={todayMargin > 0 ? todayMargin : 28}
+          hint={`มาร์จิน ${todayMargin || 28}%`}
+          icon={PiggyBank}
+        />
+        <StatCard
+          label="กำไรเดือนนี้"
+          value={compactCurrency(stats?.monthProfit ?? 330400)}
+          delta={monthMargin > 0 ? monthMargin : 28}
+          hint={`มาร์จิน ${monthMargin || 28}% · ต้นทุน ${compactCurrency(stats?.monthCogs ?? 849600)}`}
+          icon={TrendingUp}
+        />
+      </div>
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="ลูกค้าทั้งหมด"
           value={numberFmt(stats?.totalCustomers ?? 1284)}
@@ -235,6 +292,13 @@ function Dashboard() {
           hint="ต้องสั่งเพิ่มด่วน"
           icon={AlertTriangle}
           tone="warning"
+        />
+        <StatCard
+          label="รออนุมัติ"
+          value={String(stats?.pendingOrders ?? 7)}
+          hint="คำสั่งซื้อรอดำเนินการ"
+          icon={Bell}
+          tone="info"
         />
       </div>
 
@@ -329,6 +393,125 @@ function Dashboard() {
         </Widget>
       </div>
 
+      {/* กราฟกำไร รายวัน/รายเดือน */}
+      <Widget
+        title="รายงานกำไร"
+        subtitle={profitView === "day" ? "รายวัน · 7 วันล่าสุด" : "รายเดือน · 8 เดือนล่าสุด"}
+        action={
+          <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5">
+            <button
+              onClick={() => setProfitView("day")}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                profitView === "day"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground"
+              }`}
+            >
+              รายวัน
+            </button>
+            <button
+              onClick={() => setProfitView("month")}
+              className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                profitView === "month"
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground"
+              }`}
+            >
+              รายเดือน
+            </button>
+          </div>
+        }
+      >
+        <div className="h-72 p-4 pr-5">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={
+                profitData as Array<{
+                  day?: string;
+                  month?: string;
+                  revenue: number;
+                  cogs: number;
+                  profit: number;
+                }>
+              }
+              margin={{ left: -8, right: 0, top: 6, bottom: 0 }}
+            >
+              <defs>
+                <linearGradient id="profitFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="var(--chart-2)" stopOpacity={0.9} />
+                  <stop offset="100%" stopColor="var(--chart-2)" stopOpacity={0.6} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+              <XAxis
+                dataKey={profitView === "day" ? "day" : "month"}
+                tickLine={false}
+                axisLine={false}
+                fontSize={11}
+                stroke="var(--muted-foreground)"
+              />
+              <YAxis
+                tickFormatter={(v) => (profitView === "day" ? `${v / 1000}k` : `${v / 1000000}M`)}
+                tickLine={false}
+                axisLine={false}
+                fontSize={11}
+                stroke="var(--muted-foreground)"
+              />
+              <Tooltip
+                {...chartTooltip}
+                formatter={(v, name) => {
+                  const label = name === "profit" ? "กำไร" : name === "cogs" ? "ต้นทุน" : "รายได้";
+                  return [currency(Number(v)), label];
+                }}
+              />
+              <Bar
+                dataKey="revenue"
+                fill="var(--chart-1)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={profitView === "day" ? 32 : 48}
+                opacity={0.3}
+              />
+              <Bar
+                dataKey="cogs"
+                fill="var(--chart-5)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={profitView === "day" ? 32 : 48}
+                opacity={0.5}
+              />
+              <Bar
+                dataKey="profit"
+                fill="url(#profitFill)"
+                radius={[4, 4, 0, 0]}
+                maxBarSize={profitView === "day" ? 32 : 48}
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+        <div className="flex items-center gap-4 border-t px-4 py-2 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <span
+              className="size-2.5 rounded-sm"
+              style={{ background: "var(--chart-1)", opacity: 0.3 }}
+            />
+            รายได้
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span
+              className="size-2.5 rounded-sm"
+              style={{ background: "var(--chart-5)", opacity: 0.5 }}
+            />
+            ต้นทุนสินค้าขาย
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="size-2.5 rounded-sm" style={{ background: "var(--chart-2)" }} />
+            กำไรขั้นต้น
+          </span>
+          <span className="ml-auto font-medium text-foreground">
+            กำไรรวม {currency(profitData.reduce((s, d) => s + d.profit, 0))}
+          </span>
+        </div>
+      </Widget>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Widget title="สินค้าขายดี" subtitle="เรียงตามจำนวนที่ขายได้เดือนนี้">
           <ul className="divide-y">
@@ -340,7 +523,8 @@ function Dashboard() {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{p.name}</p>
                   <p className="text-xs text-muted-foreground">
-                    #{i + 1} · ขายได้ {p.sold} {p.unit}
+                    #{i + 1} · ขายได้ {p.sold} {p.unit} · กำไร{" "}
+                    {compactCurrency((p.price - p.cost) * p.sold)}
                   </p>
                 </div>
                 <div className="shrink-0 text-right">

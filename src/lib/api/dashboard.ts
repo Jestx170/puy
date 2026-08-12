@@ -9,6 +9,9 @@ export interface DashboardStats {
   lowStockCount: number;
   monthSales: number;
   pendingOrders: number;
+  todayProfit: number;
+  monthProfit: number;
+  monthCogs: number;
 }
 
 export interface SalesByDay {
@@ -21,6 +24,20 @@ export interface RevenueTrend {
   month: string;
   revenue: number;
   target: number;
+}
+
+export interface ProfitByDay {
+  day: string;
+  revenue: number;
+  cogs: number;
+  profit: number;
+}
+
+export interface ProfitByMonth {
+  month: string;
+  revenue: number;
+  cogs: number;
+  profit: number;
 }
 
 export interface TopProduct extends Product {
@@ -51,7 +68,41 @@ export const dashboardApi = {
       lowStockCount: r.low_stock_count,
       monthSales: Number(r.month_sales),
       pendingOrders: r.pending_orders,
+      todayProfit: Number(r.today_profit ?? 0),
+      monthProfit: Number(r.month_profit ?? 0),
+      monthCogs: Number(r.month_cogs ?? 0),
     };
+  },
+
+  async profitByDay(): Promise<ProfitByDay[]> {
+    const { data, error } = await supabase.from("v_profit_by_day").select("*");
+    if (error) throw error;
+    const dayMap: Record<string, string> = {
+      Mon: "จ.",
+      Tue: "อ.",
+      Wed: "พ.",
+      Thu: "พฤ.",
+      Fri: "ศ.",
+      Sat: "ส.",
+      Sun: "อา.",
+    };
+    return (data as DbProfitByDay[]).map((r) => ({
+      day: dayMap[r.day_short] ?? r.day_short,
+      revenue: Number(r.revenue),
+      cogs: Number(r.cogs),
+      profit: Number(r.profit),
+    }));
+  },
+
+  async profitByMonth(): Promise<ProfitByMonth[]> {
+    const { data, error } = await supabase.from("v_profit_by_month").select("*");
+    if (error) throw error;
+    return (data as DbProfitByMonth[]).map((r) => ({
+      month: r.month,
+      revenue: Number(r.revenue),
+      cogs: Number(r.cogs),
+      profit: Number(r.profit),
+    }));
   },
 
   async salesByDay(): Promise<SalesByDay[]> {
@@ -134,6 +185,26 @@ interface DbDashboardStats {
   low_stock_count: number;
   month_sales: number;
   pending_orders: number;
+  today_profit: number | null;
+  month_profit: number | null;
+  month_cogs: number | null;
+}
+
+interface DbProfitByDay {
+  date: string;
+  day_short: string;
+  day_idx: number;
+  revenue: number;
+  cogs: number;
+  profit: number;
+}
+
+interface DbProfitByMonth {
+  month_key: string;
+  month: string;
+  revenue: number;
+  cogs: number;
+  profit: number;
 }
 
 interface DbSalesByDay {

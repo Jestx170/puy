@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
+import { printReceipt } from "@/lib/print";
 import { currency, documents, orders, products, timeline } from "@/data/mock";
 
 export const Route = createFileRoute("/sales/$orderId")({
@@ -59,7 +60,29 @@ function OrderDetail() {
               variant="outline"
               size="sm"
               className="rounded-xl"
-              onClick={() => toast("ส่งเอกสารไปยังเครื่องพิมพ์")}
+              onClick={() => {
+                printReceipt({
+                  storeName: "ปุ๋ยไทย CRM",
+                  storeAddress: "123 ถนนเกษตร ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000",
+                  storePhone: "043-123-456",
+                  receiptNo: order.code,
+                  date: order.date,
+                  customer: order.customer,
+                  salesperson: order.salesperson,
+                  channel: order.channel,
+                  lines: lines.map((l) => ({
+                    name: l.p.name,
+                    qty: l.qty,
+                    unit: l.p.unit,
+                    price: l.p.price,
+                  })),
+                  subtotal,
+                  vat,
+                  total: subtotal + vat,
+                  payment: order.payment,
+                });
+                toast.success("เปิดหน้าต่างพิมพ์แล้ว — เลือกเครื่องพิมพ์เพื่อพิมพ์ใบเสร็จ");
+              }}
             >
               <Printer className="size-4" /> พิมพ์
             </Button>
