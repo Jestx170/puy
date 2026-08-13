@@ -17,6 +17,15 @@ function rowToOrder(r: DbOrder): Order {
   };
 }
 
+// รายการสินค้าในออเดอร์ (สำหรับ create แบบมี items)
+export interface OrderLineInput {
+  productId: string;
+  productName: string;
+  qty: number;
+  price: number;
+  cost: number;
+}
+
 export const ordersApi = {
   async list(filter?: {
     status?: string | undefined;
@@ -60,6 +69,57 @@ export const ordersApi = {
       .select()
       .single();
     if (error) throw error;
+    return rowToOrder(data as DbOrder);
+  },
+
+  // สร้างออเดอร์พร้อม line items แล้ว insert ลง order_items ด้วย
+  // ใช้สำหรับ POS checkout ที่ต้องบันทึกยอดขาย + รายการสินค้า (มี cost เพื่อคำนวณกำไร)
+  async createWithItems(
+    o: {
+      id?: string;
+      code: string;
+      customerId: string;
+      customerName: string;
+      total: number;
+      status: OrderStatus;
+      channel: Order["channel"];
+      salesperson: string;
+      payment: Order["payment"];
+    },
+    lines: OrderLineInput[],
+  ): Promise<Order> {
+    const orderId = o.id ?? `o-${Date.now()}`;
+    const { data, error } = await supabase
+      .from("orders")
+      .insert({
+        id: orderId,
+        code: o.code,
+        customer_id: o.customerId,
+        customer_name: o.customerName,
+        total: o.total,
+        items: lines.length,
+        status: o.status,
+        channel: o.channel,
+        salesperson: o.salesperson,
+        payment: o.payment,
+      })
+      .select()
+      .single();
+    if (error) throw error;
+
+    // insert order_items
+    const rows = lines.map((l) => ({
+      order_id: orderId,
+      product_id: l.productId,
+      product_name: l.productName,
+      qty: l.qty,
+      price: l.price,
+      cost: l.cost,
+      subtotal: l.price * l.qty,
+    }));
+    const { error: e2 } = await supabase.from("order_items").insert(rows);
+    if (e2) throw e2;
+
     return rowToOrder(data as DbOrder);
   },
 

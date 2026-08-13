@@ -11,7 +11,6 @@ import {
   ArrowDownToLine,
   ArrowUpFromLine,
   SlidersHorizontal,
-  ArrowLeftRight,
   History,
   ClipboardList,
 } from "lucide-react";
@@ -47,7 +46,6 @@ const inventorySub = [
   { title: "รับเข้า", url: "/inventory/stock-in", icon: ArrowDownToLine },
   { title: "จ่ายออก", url: "/inventory/stock-out", icon: ArrowUpFromLine },
   { title: "ปรับปรุง", url: "/inventory/adjustment", icon: SlidersHorizontal },
-  { title: "โอนย้าย", url: "/inventory/transfer", icon: ArrowLeftRight },
   { title: "ประวัติเคลื่อนไหว", url: "/inventory/movements", icon: History },
   { title: "ตรวจนับสต็อก", url: "/inventory/count", icon: ClipboardList },
 ];
@@ -122,7 +120,7 @@ export function AppSidebar() {
         ) : (
           <div className="rounded-xl bg-secondary/60 p-3">
             <p className="text-xs font-semibold text-secondary-foreground">แผนธุรกิจ · Pro</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">3 สาขา · 7 ผู้ใช้งาน</p>
+            <p className="mt-0.5 text-[11px] text-muted-foreground">1 สาขา · 1 ผู้ใช้งาน</p>
           </div>
         )}
       </SidebarFooter>

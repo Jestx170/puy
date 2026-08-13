@@ -114,9 +114,7 @@ create policy "anon all movements"  on public.stock_movements for all using (tru
 -- Seed: warehouses
 -- ============================================================
 insert into public.warehouses (id, name, items, value, capacity) values
-  ('wh1', 'คลังหลัก',    1284, 3420000, 78),
-  ('wh2', 'คลังสาขา 2',   642, 1180000, 46),
-  ('wh3', 'หน้าร้าน',     318,  420000, 62)
+  ('wh1', 'คลังหลัก',    1284, 3420000, 78)
 on conflict (name) do nothing;
 
 -- ============================================================
@@ -149,11 +147,11 @@ on conflict (sku) do nothing;
 insert into public.stock_movements (code, type, product_id, product_name, qty, warehouse, by_user, date, status)
 select
   'MV-26' || lpad((3301 + i)::text, 4, '0'),
-  case i % 4 when 0 then 'รับเข้า' when 1 then 'จ่ายออก' when 2 then 'ปรับปรุง' else 'โอนย้าย' end,
+  case i % 4 when 0 then 'รับเข้า' when 1 then 'จ่ายออก' when 2 then 'ปรับปรุง' else 'ปรับปรุง' end,
   'p' || ((i % 16) + 1)::text,
   (select name from public.products where id = 'p' || ((i % 16) + 1)::text),
   case when i % 4 = 1 then -1 else 1 end * (10 + i * 7),
-  case i % 3 when 0 then 'คลังหลัก' when 1 then 'คลังสาขา 2' else 'หน้าร้าน' end,
+  'คลังหลัก',
   case i % 4 when 0 then 'ธนกร' when 1 then 'ปิยะ' when 2 then 'มนูญ' else 'วรัญญา' end,
   ('2026-08-' || lpad((7 - (i % 7))::text, 2, '0'))::date,
   case i % 4 when 0 then 'completed' when 1 then 'completed' when 2 then 'pending' else 'draft' end

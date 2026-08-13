@@ -17,6 +17,10 @@ import {
   Ruler,
   Eye,
   Trash2,
+  Printer,
+  AlertTriangle,
+  TrendingUp,
+  Clock,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -44,6 +48,13 @@ import {
   type Customer,
   type MemberTier,
 } from "@/data/mock";
+import {
+  recommendForCustomer,
+  recommendForCultivation,
+  stageProgress,
+  stagePlaybook,
+} from "@/lib/agronomy";
+import { printReceipt } from "@/lib/print";
 import {
   Sheet,
   SheetContent,
@@ -155,6 +166,45 @@ function CrmPage() {
       ),
     [customer],
   );
+
+  // สินค้าแนะนำ คำนวณจากช่วงการปลูก + พื้นที่จริงของทุกแปลง
+  const recommendations = useMemo(
+    () => recommendForCustomer(cultivations, products),
+    [cultivations],
+  );
+  const recoTotal = useMemo(
+    () => recommendations.reduce((s, i) => s + i.subtotal, 0),
+    [recommendations],
+  );
+
+  const printQuote = () => {
+    if (recommendations.length === 0) {
+      toast.error("ไม่มีสินค้าแนะนำให้เสนอราคา");
+      return;
+    }
+    const vat = Math.round(recoTotal * 0.07);
+    printReceipt({
+      storeName: "ปุ๋ยไทย CRM",
+      storeAddress: "123 ถนนเกษตร ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000",
+      storePhone: "043-123-456",
+      docTitle: "ใบเสนอราคา",
+      receiptNo: `QT-${Date.now()}`,
+      date: new Date().toLocaleDateString("th-TH"),
+      customer: customer.name,
+      lines: recommendations.map((it) => ({
+        name: it.product.name,
+        qty: it.qty,
+        unit: it.product.unit,
+        price: it.product.price,
+      })),
+      subtotal: recoTotal,
+      vat,
+      total: recoTotal + vat,
+      note: `คำนวณจาก ${cultivations.length} แปลง รวม ${cultivations.reduce((s, c) => s + c.area, 0)} ไร่`,
+      footerText: "ราคานี้ยืนยัน 7 วัน\nกรุณาติดต่อเจ้าหน้าที่เพื่อยืนยันการสั่งซื้อ",
+    });
+    toast.success("เปิดหน้าต่างพิมพ์ใบเสนอราคาแล้ว");
+  };
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -449,67 +499,121 @@ function CrmPage() {
 
                   {/* รายการแปลงเพาะปลูก */}
                   <div className="space-y-2">
-                    {cultivations.map((cul) => (
-                      <div key={cul.id} className="rounded-xl border p-4">
-                        <div className="flex flex-wrap items-start justify-between gap-3">
-                          <div className="min-w-0">
+                    {cultivations.map((cul) => {
+                      const prog = stageProgress(cul);
+                      return (
+                        <div key={cul.id} className="rounded-xl border p-4">
+                          <div className="flex flex-wrap items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2">
+                                <Sprout className="size-4 shrink-0 text-primary" />
+                                <h3 className="truncate text-sm font-semibold">{cul.crop}</h3>
+                                <span
+                                  className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${
+                                    stageTone[cul.stage] === "neutral"
+                                      ? "bg-muted text-muted-foreground border-border"
+                                      : stageTone[cul.stage] === "info"
+                                        ? "bg-info/12 text-info border-info/25"
+                                        : stageTone[cul.stage] === "success"
+                                          ? "bg-success/12 text-success border-success/25"
+                                          : stageTone[cul.stage] === "warning"
+                                            ? "bg-warning/15 text-warning border-warning/30"
+                                            : "bg-destructive/10 text-destructive border-destructive/25"
+                                  }`}
+                                >
+                                  {cul.stage}
+                                </span>
+                              </div>
+                              {cul.note && (
+                                <p className="mt-1 text-xs text-muted-foreground">{cul.note}</p>
+                              )}
+                            </div>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="rounded-xl"
+                              onClick={() => toast(`อัปเดตช่วงการปลูก: ${cul.crop}`)}
+                            >
+                              อัปเดตช่วง
+                            </Button>
+                          </div>
+
+                          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
                             <div className="flex items-center gap-2">
-                              <Sprout className="size-4 shrink-0 text-primary" />
-                              <h3 className="truncate text-sm font-semibold">{cul.crop}</h3>
-                              <span
-                                className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${
-                                  stageTone[cul.stage] === "neutral"
-                                    ? "bg-muted text-muted-foreground border-border"
-                                    : stageTone[cul.stage] === "info"
-                                      ? "bg-info/12 text-info border-info/25"
-                                      : stageTone[cul.stage] === "success"
-                                        ? "bg-success/12 text-success border-success/25"
-                                        : stageTone[cul.stage] === "warning"
-                                          ? "bg-warning/15 text-warning border-warning/30"
-                                          : "bg-destructive/10 text-destructive border-destructive/25"
-                                }`}
-                              >
-                                {cul.stage}
+                              <Ruler className="size-3.5 shrink-0 text-muted-foreground" />
+                              <span className="text-muted-foreground">พื้นที่:</span>
+                              <span className="font-medium tabular-nums">{cul.area} ไร่</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <MapPinned className="size-3.5 shrink-0 text-muted-foreground" />
+                              <span className="text-muted-foreground">ที่ตั้ง:</span>
+                              <span className="font-medium">{cul.location}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Calendar className="size-3.5 shrink-0 text-muted-foreground" />
+                              <span className="text-muted-foreground">ปลูกเมื่อ:</span>
+                              <span className="font-medium tabular-nums">{cul.plantedDate}</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Calendar className="size-3.5 shrink-0 text-muted-foreground" />
+                              <span className="text-muted-foreground">เก็บเกี่ยว:</span>
+                              <span className="font-medium tabular-nums">
+                                {cul.expectedHarvest}
                               </span>
                             </div>
-                            {cul.note && (
-                              <p className="mt-1 text-xs text-muted-foreground">{cul.note}</p>
+                          </div>
+
+                          {/* ความคืบหน้ารอบการปลูก คำนวณจากวันปลูก + รอบของพืชชนิดนั้น */}
+                          <div className="mt-3 border-t pt-3">
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="text-muted-foreground">
+                                ผ่านมา {Math.max(0, prog.daysSincePlanted)} / {prog.cycleDays} วัน
+                              </span>
+                              <span className="font-semibold tabular-nums">
+                                {prog.progressPct}%
+                              </span>
+                            </div>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full bg-primary transition-all"
+                                style={{ width: `${prog.progressPct}%` }}
+                              />
+                            </div>
+
+                            {prog.isBehindSchedule ? (
+                              <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+                                <AlertTriangle className="mt-px size-3 shrink-0" />
+                                <span>
+                                  ตามปฏิทินควรอยู่ช่วง{" "}
+                                  <span className="font-semibold">{prog.expectedStage}</span> แล้ว —
+                                  ข้อมูลอาจไม่อัปเดต ควรโทรเช็กและเสนอสินค้าช่วงนี้
+                                </span>
+                              </p>
+                            ) : prog.nextStage ? (
+                              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                <Clock className="mt-px size-3 shrink-0" />
+                                <span>
+                                  อีก{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {prog.daysToNextStage} วัน
+                                  </span>{" "}
+                                  จะเข้าช่วง{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {prog.nextStage}
+                                  </span>{" "}
+                                  — เตรียมเสนอสินค้าล่วงหน้าได้
+                                </span>
+                              </p>
+                            ) : (
+                              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                <TrendingUp className="mt-px size-3 shrink-0" />
+                                <span>ครบรอบการปลูกแล้ว — เสนอสินค้าเตรียมดินรอบถัดไปได้</span>
+                              </p>
                             )}
                           </div>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="rounded-xl"
-                            onClick={() => toast(`อัปเดตช่วงการปลูก: ${cul.crop}`)}
-                          >
-                            อัปเดตช่วง
-                          </Button>
                         </div>
-
-                        <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
-                          <div className="flex items-center gap-2">
-                            <Ruler className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span className="text-muted-foreground">พื้นที่:</span>
-                            <span className="font-medium tabular-nums">{cul.area} ไร่</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <MapPinned className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span className="text-muted-foreground">ที่ตั้ง:</span>
-                            <span className="font-medium">{cul.location}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span className="text-muted-foreground">ปลูกเมื่อ:</span>
-                            <span className="font-medium tabular-nums">{cul.plantedDate}</span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Calendar className="size-3.5 shrink-0 text-muted-foreground" />
-                            <span className="text-muted-foreground">เก็บเกี่ยว:</span>
-                            <span className="font-medium tabular-nums">{cul.expectedHarvest}</span>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
 
                   <Button
@@ -665,22 +769,90 @@ function CrmPage() {
               </ul>
             </TabsContent>
 
-            <TabsContent value="reco" className="mt-4 grid gap-3 sm:grid-cols-2">
-              {products.slice(5, 9).map((p) => (
-                <div key={p.id} className="flex items-center gap-3 rounded-xl border p-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-                    {p.emoji}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{p.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      <Sparkles className="mr-1 inline size-3 text-primary" />
-                      เหมาะกับรอบการเพาะปลูกถัดไป
-                    </p>
+            <TabsContent value="reco" className="mt-4 space-y-3">
+              {recommendations.length === 0 ? (
+                <EmptyState
+                  icon={Sparkles}
+                  title="ยังแนะนำสินค้าไม่ได้"
+                  description={`${customer.type} รายนี้ไม่มีข้อมูลแปลงเพาะปลูก จึงคำนวณความต้องการไม่ได้ — เพิ่มแปลงก่อนเพื่อให้ระบบแนะนำสินค้าและปริมาณ`}
+                />
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/40 p-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold">
+                        คำนวณจาก {cultivations.length} แปลง · รวม{" "}
+                        {cultivations.reduce((s, c) => s + c.area, 0)} ไร่
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        ปริมาณคิดจากอัตราการใช้ต่อไร่ตามช่วงการปลูกที่บันทึกไว้
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <p className="text-right">
+                        <span className="block text-[11px] text-muted-foreground">มูลค่ารวม</span>
+                        <span className="text-lg font-bold tabular-nums text-primary">
+                          {currency(recoTotal)}
+                        </span>
+                      </p>
+                      <Button size="sm" className="rounded-xl" onClick={printQuote}>
+                        <Printer className="size-4" /> พิมพ์ใบเสนอราคา
+                      </Button>
+                    </div>
                   </div>
-                  <p className="shrink-0 text-sm font-semibold tabular-nums">{currency(p.price)}</p>
-                </div>
-              ))}
+
+                  {/* แยกตามแปลง เพื่อให้เห็นว่าของแต่ละอย่างมาจากแปลงไหน */}
+                  {cultivations.map((cul) => {
+                    const items = recommendForCultivation(cul, products);
+                    if (items.length === 0) return null;
+                    return (
+                      <div key={cul.id} className="rounded-xl border">
+                        <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                          <Sprout className="size-4 shrink-0 text-primary" />
+                          <span className="text-sm font-semibold">{cul.crop}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {cul.area} ไร่ · {cul.stage}
+                          </span>
+                          <span className="ml-auto text-xs font-semibold tabular-nums">
+                            {currency(items.reduce((s, i) => s + i.subtotal, 0))}
+                          </span>
+                        </header>
+                        <p className="border-b bg-muted/30 px-3 py-1.5 text-[11px] text-muted-foreground">
+                          {stagePlaybook[cul.stage].advice}
+                        </p>
+                        <ul className="divide-y">
+                          {items.map((it) => (
+                            <li key={it.product.id} className="flex items-start gap-3 px-3 py-2.5">
+                              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-base">
+                                {it.product.emoji}
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-medium">{it.product.name}</p>
+                                <p className="text-xs text-muted-foreground">{it.reason}</p>
+                                {it.shortStock && (
+                                  <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-warning">
+                                    <AlertTriangle className="size-3 shrink-0" />
+                                    สต็อกเหลือ {it.product.stock} {it.product.unit} —
+                                    ไม่พอตามที่แนะนำ
+                                  </p>
+                                )}
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-sm font-semibold tabular-nums">
+                                  {it.qty} {it.product.unit}
+                                </p>
+                                <p className="text-[11px] text-muted-foreground tabular-nums">
+                                  {currency(it.subtotal)}
+                                </p>
+                              </div>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
             </TabsContent>
           </Tabs>
         </section>

@@ -15,6 +15,10 @@ export interface ReceiptData {
   storeName: string;
   storeAddress?: string;
   storePhone?: string;
+  /** ชื่อเอกสาร เช่น "ใบเสนอราคา" (ค่าเริ่มต้น "ใบเสร็จ") */
+  docTitle?: string | undefined;
+  /** ข้อความปิดท้าย (ค่าเริ่มต้นเป็นข้อความขอบคุณ) */
+  footerText?: string | undefined;
   receiptNo: string;
   date: string;
   customer?: string | undefined;
@@ -83,6 +87,7 @@ function buildReceiptHTML(r: ReceiptData): string {
   .header { text-align: center; margin-bottom: 8px; }
   .header h1 { font-size: 16px; margin: 0; font-weight: 700; }
   .header p { margin: 2px 0; font-size: 11px; color: #555; }
+  .header .doctitle { margin-top: 5px; font-size: 13px; font-weight: 700; color: #1a1a1a; letter-spacing: 0.5px; }
   .divider { border-top: 1px dashed #aaa; margin: 8px 0; }
   .meta { font-size: 11px; margin-bottom: 6px; }
   .meta div { display: flex; justify-content: space-between; }
@@ -107,6 +112,7 @@ function buildReceiptHTML(r: ReceiptData): string {
     <h1>${esc(r.storeName)}</h1>
     ${r.storeAddress ? `<p>${esc(r.storeAddress)}</p>` : ""}
     ${r.storePhone ? `<p>โทร. ${esc(r.storePhone)}</p>` : ""}
+    ${r.docTitle ? `<p class="doctitle">${esc(r.docTitle)}</p>` : ""}
   </div>
   <div class="divider"></div>
   <div class="meta">
@@ -133,7 +139,11 @@ function buildReceiptHTML(r: ReceiptData): string {
   ${r.payment ? `<div class="divider"></div><div class="meta"><div><span class="label">วิธีชำระ</span><span>${esc(r.payment)}</span></div></div>` : ""}
   ${r.note ? `<p class="note">${esc(r.note)}</p>` : ""}
   <div class="divider"></div>
-  <div class="footer">ขอบคุณที่อุดหนุน<br/>ใบเสร็จนี้ใช้เป็นหลักฐานการรับสินค้า</div>
+  <div class="footer">${
+    r.footerText
+      ? esc(r.footerText).replace(/\n/g, "<br/>")
+      : "ขอบคุณที่อุดหนุน<br/>ใบเสร็จนี้ใช้เป็นหลักฐานการรับสินค้า"
+  }</div>
 </body>
 </html>`;
 }

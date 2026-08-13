@@ -56,10 +56,10 @@ export const Route = createFileRoute("/sales/")({
       {
         name: "description",
         content:
-          "พื้นที่ทำงานฝ่ายขาย: สถิติยอดขาย คำสั่งขายทั้งหมด พร้อมตัวกรองตามสถานะ วันที่ ลูกค้า และพนักงานขาย",
+          "พื้นที่ทำงานฝ่ายขาย: สถิติยอดขาย คำสั่งขายทั้งหมด พร้อมตัวกรองตามสถานะ วันที่ และลูกค้า",
       },
       { property: "og:title", content: "การขาย — ปุ๋ยไทย CRM" },
-      { property: "og:description", content: "ติดตามคำสั่งขายและผลงานทีมขาย" },
+      { property: "og:description", content: "ติดตามคำสั่งขายทั้งหมด" },
       { property: "og:url", content: "/sales" },
     ],
     links: [{ rel: "canonical", href: "/sales" }],
@@ -72,20 +72,16 @@ function SalesPage() {
   const search = Route.useSearch();
   const [query, setQuery] = useState(search.q ?? "");
   const [status, setStatus] = useState(search.status ?? "all");
-  const [person, setPerson] = useState("all");
   const navigate = useNavigate();
-
-  const people = Array.from(new Set(orders.map((o) => o.salesperson)));
 
   const rows = useMemo(
     () =>
       orders.filter(
         (o) =>
           (status === "all" || o.status === status) &&
-          (person === "all" || o.salesperson === person) &&
           (o.code.toLowerCase().includes(query.toLowerCase()) || o.customer.includes(query)),
       ),
-    [query, status, person],
+    [query, status],
   );
 
   const { slice, page, pages, setPage, total, perPage } = usePagination(rows, 10);
@@ -113,7 +109,6 @@ function SalesPage() {
                     รายการ: o.items,
                     สถานะ: o.status,
                     ช่องทาง: o.channel,
-                    พนักงาน: o.salesperson,
                     การชำระ: o.payment,
                   })),
                   `รายงานการขาย-${date}.csv`,
@@ -185,17 +180,6 @@ function SalesPage() {
                     { value: "refunded", label: "คืนเงิน" },
                   ]}
                 />
-                <FilterSelect
-                  value={person}
-                  onChange={setPerson}
-                  label="พนักงานขาย"
-                  icon={false}
-                  className="w-[160px]"
-                  options={[
-                    { value: "all", label: "พนักงานขายทั้งหมด" },
-                    ...people.map((p) => ({ value: p, label: p })),
-                  ]}
-                />
               </>
             }
           />
@@ -216,7 +200,6 @@ function SalesPage() {
                   <TableHead>ลูกค้า</TableHead>
                   <TableHead>วันที่</TableHead>
                   <TableHead>ช่องทาง</TableHead>
-                  <TableHead>พนักงานขาย</TableHead>
                   <TableHead>การชำระเงิน</TableHead>
                   <TableHead>สถานะ</TableHead>
                   <TableHead className="text-right">ยอดรวม</TableHead>
@@ -239,7 +222,6 @@ function SalesPage() {
                         <TableCell className="max-w-40 truncate text-sm">{o.customer}</TableCell>
                         <TableCell className="text-xs text-muted-foreground">{o.date}</TableCell>
                         <TableCell className="text-xs">{o.channel}</TableCell>
-                        <TableCell className="text-xs">{o.salesperson}</TableCell>
                         <TableCell className="text-xs">{o.payment}</TableCell>
                         <TableCell>
                           <StatusBadge status={o.status} />

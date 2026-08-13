@@ -46,6 +46,12 @@ export const productsApi = {
     return (data as DbProduct[]).map(rowToProduct);
   },
 
+  async get(id: string): Promise<Product> {
+    const { data, error } = await supabase.from("products").select("*").eq("id", id).single();
+    if (error) throw error;
+    return rowToProduct(data as DbProduct);
+  },
+
   async create(p: Product): Promise<Product> {
     const { data, error } = await supabase
       .from("products")

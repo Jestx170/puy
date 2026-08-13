@@ -38,12 +38,10 @@ import {
   movements as seedMovements,
   numberFmt,
   products as seedProducts,
-  warehouses as seedWarehouses,
   type Movement,
 } from "@/data/mock";
 import { movementsApi } from "@/lib/api/movements";
 import { productsApi } from "@/lib/api/products";
-import { warehousesApi, type Warehouse } from "@/lib/api/warehouses";
 
 export function InventoryOpsPage({
   title,
@@ -217,21 +215,15 @@ function MovementForm({
   actionLabel: string;
   onCreate: (m: Movement) => void;
 }) {
-  // ดึง products + warehouses จาก Supabase
+  // ดึง products จาก Supabase
   const { data: products = seedProducts } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
     placeholderData: seedProducts,
   });
-  const { data: warehouses = seedWarehouses } = useQuery({
-    queryKey: ["warehouses"],
-    queryFn: () => warehousesApi.list(),
-    placeholderData: seedWarehouses,
-  });
 
-  // ค่าเริ่มต้นของฟอร์ม
+  // ค่าเริ่มต้นของฟอร์ม — สาขาเดียว ใช้ "คลังหลัก" เสมอ
   const [productId, setProductId] = useState(products[0]?.id ?? "");
-  const [warehouse, setWarehouse] = useState(warehouses[0]?.name ?? "");
   const [qty, setQty] = useState("10");
   const [by, setBy] = useState("admin");
   const [note, setNote] = useState("");
@@ -242,7 +234,6 @@ function MovementForm({
 
   const reset = () => {
     setProductId(products[0]?.id ?? "");
-    setWarehouse(warehouses[0]?.name ?? "");
     setQty("10");
     setBy("admin");
     setNote("");
@@ -270,7 +261,7 @@ function MovementForm({
         productId: product.id,
         productName: product.name,
         qty: signedQty,
-        warehouse,
+        warehouse: "คลังหลัก",
         by: by.trim() || "admin",
         note: note.trim() || undefined,
       });
@@ -303,7 +294,6 @@ function MovementForm({
                   <SelectItem value="รับเข้า">รับเข้า</SelectItem>
                   <SelectItem value="จ่ายออก">จ่ายออก</SelectItem>
                   <SelectItem value="ปรับปรุง">ปรับปรุง</SelectItem>
-                  <SelectItem value="โอนย้าย">โอนย้าย</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -332,23 +322,6 @@ function MovementForm({
                 </p>
               ) : null;
             })()}
-          </div>
-
-          {/* คลังสินค้า */}
-          <div className="space-y-1.5">
-            <Label className="text-xs font-semibold">คลังปลายทาง *</Label>
-            <Select value={warehouse} onValueChange={setWarehouse}>
-              <SelectTrigger className="h-9 rounded-xl">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="rounded-xl">
-                {warehouses.map((w) => (
-                  <SelectItem key={w.name} value={w.name}>
-                    {w.name} · ใช้ {w.capacity}%
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
           </div>
 
           {/* จำนวน */}
@@ -414,7 +387,7 @@ function MovementForm({
               </span>
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
-              {moveType} · {warehouse} · {by || "admin"}
+              {moveType} · คลังหลัก · {by || "admin"}
             </p>
           </div>
         </div>

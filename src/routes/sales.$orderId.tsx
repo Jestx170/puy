@@ -47,7 +47,7 @@ function OrderDetail() {
     <div className="space-y-5 p-4 sm:p-6">
       <PageHeader
         title={order.code}
-        description={`${order.channel} · ${order.date} · พนักงานขาย ${order.salesperson}`}
+        description={`${order.channel} · ${order.date}`}
         crumbs={[{ label: "การขาย", to: "/sales" }, { label: order.code }]}
         actions={
           <>

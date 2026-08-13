@@ -19,7 +19,6 @@ import { Route as InventoryCountRouteImport } from './routes/inventory.count'
 import { Route as InventoryMovementsRouteImport } from './routes/inventory.movements'
 import { Route as InventoryStockInRouteImport } from './routes/inventory.stock-in'
 import { Route as InventoryStockOutRouteImport } from './routes/inventory.stock-out'
-import { Route as InventoryTransferRouteImport } from './routes/inventory.transfer'
 import { Route as ProductsIndexRouteImport } from './routes/products.index'
 import { Route as ProductsProductIdRouteImport } from './routes/products.$productId'
 import { Route as PromotionsIndexRouteImport } from './routes/promotions.index'
@@ -76,11 +75,6 @@ const InventoryStockOutRoute = InventoryStockOutRouteImport.update({
   path: '/inventory/stock-out',
   getParentRoute: () => rootRouteImport,
 } as any)
-const InventoryTransferRoute = InventoryTransferRouteImport.update({
-  id: '/inventory/transfer',
-  path: '/inventory/transfer',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ProductsIndexRoute = ProductsIndexRouteImport.update({
   id: '/products/',
   path: '/products/',
@@ -117,7 +111,6 @@ export interface FileRoutesByFullPath {
   '/inventory/movements': typeof InventoryMovementsRoute
   '/inventory/stock-in': typeof InventoryStockInRoute
   '/inventory/stock-out': typeof InventoryStockOutRoute
-  '/inventory/transfer': typeof InventoryTransferRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/sales/$orderId': typeof SalesOrderIdRoute
   '/inventory/': typeof InventoryIndexRoute
@@ -135,7 +128,6 @@ export interface FileRoutesByTo {
   '/inventory/movements': typeof InventoryMovementsRoute
   '/inventory/stock-in': typeof InventoryStockInRoute
   '/inventory/stock-out': typeof InventoryStockOutRoute
-  '/inventory/transfer': typeof InventoryTransferRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/sales/$orderId': typeof SalesOrderIdRoute
   '/inventory': typeof InventoryIndexRoute
@@ -154,7 +146,6 @@ export interface FileRoutesById {
   '/inventory/movements': typeof InventoryMovementsRoute
   '/inventory/stock-in': typeof InventoryStockInRoute
   '/inventory/stock-out': typeof InventoryStockOutRoute
-  '/inventory/transfer': typeof InventoryTransferRoute
   '/products/$productId': typeof ProductsProductIdRoute
   '/sales/$orderId': typeof SalesOrderIdRoute
   '/inventory/': typeof InventoryIndexRoute
@@ -174,7 +165,6 @@ export interface FileRouteTypes {
     | '/inventory/movements'
     | '/inventory/stock-in'
     | '/inventory/stock-out'
-    | '/inventory/transfer'
     | '/products/$productId'
     | '/sales/$orderId'
     | '/inventory/'
@@ -192,7 +182,6 @@ export interface FileRouteTypes {
     | '/inventory/movements'
     | '/inventory/stock-in'
     | '/inventory/stock-out'
-    | '/inventory/transfer'
     | '/products/$productId'
     | '/sales/$orderId'
     | '/inventory'
@@ -210,7 +199,6 @@ export interface FileRouteTypes {
     | '/inventory/movements'
     | '/inventory/stock-in'
     | '/inventory/stock-out'
-    | '/inventory/transfer'
     | '/products/$productId'
     | '/sales/$orderId'
     | '/inventory/'
@@ -229,7 +217,6 @@ export interface RootRouteChildren {
   InventoryMovementsRoute: typeof InventoryMovementsRoute
   InventoryStockInRoute: typeof InventoryStockInRoute
   InventoryStockOutRoute: typeof InventoryStockOutRoute
-  InventoryTransferRoute: typeof InventoryTransferRoute
   ProductsProductIdRoute: typeof ProductsProductIdRoute
   SalesOrderIdRoute: typeof SalesOrderIdRoute
   InventoryIndexRoute: typeof InventoryIndexRoute
@@ -310,13 +297,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof InventoryStockOutRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/inventory/transfer': {
-      id: '/inventory/transfer'
-      path: '/inventory/transfer'
-      fullPath: '/inventory/transfer'
-      preLoaderRoute: typeof InventoryTransferRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/products/': {
       id: '/products/'
       path: '/products'
@@ -365,7 +345,6 @@ const rootRouteChildren: RootRouteChildren = {
   InventoryMovementsRoute: InventoryMovementsRoute,
   InventoryStockInRoute: InventoryStockInRoute,
   InventoryStockOutRoute: InventoryStockOutRoute,
-  InventoryTransferRoute: InventoryTransferRoute,
   ProductsProductIdRoute: ProductsProductIdRoute,
   SalesOrderIdRoute: SalesOrderIdRoute,
   InventoryIndexRoute: InventoryIndexRoute,

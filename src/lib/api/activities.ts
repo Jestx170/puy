@@ -30,6 +30,21 @@ export const activitiesApi = {
     if (error) throw error;
     return (data as DbActivity[]).map(rowToActivity);
   },
+
+  async create(a: {
+    actor: string;
+    action: string;
+    target?: string;
+    kind?: ActivityItem["kind"];
+  }): Promise<void> {
+    const { error } = await supabase.from("activities").insert({
+      actor: a.actor,
+      action: a.action,
+      target: a.target ?? "",
+      kind: a.kind ?? "system",
+    });
+    if (error) throw error;
+  },
 };
 
 interface DbActivity {

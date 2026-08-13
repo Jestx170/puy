@@ -176,9 +176,9 @@ export interface AppNotification {
   link?: string | undefined;
 }
 
-// --- User & Permission ---
+// --- User (admin คนเดียว) ---
 
-export type RoleName = "Owner" | "Manager" | "Cashier" | "Sales" | "Warehouse";
+export type RoleName = "Owner";
 
 export interface AppUser {
   id: string;
@@ -189,14 +189,3 @@ export interface AppUser {
   status: "active" | "invited" | "suspended";
   lastActive: string;
 }
-
-export const permissionActions = [
-  "View",
-  "Create",
-  "Update",
-  "Delete",
-  "Approve",
-  "Export",
-  "Print",
-] as const;
-export type PermissionAction = (typeof permissionActions)[number];

@@ -30,9 +30,8 @@ export type {
   AppNotification,
   AppUser,
   RoleName,
-  PermissionAction,
 } from "@/types";
-export { cultivationStages, stageTone, permissionActions } from "@/types";
+export { cultivationStages, stageTone } from "@/types";
 export { currency, compactCurrency, numberFmt } from "@/lib/format";
 
 // import สำหรับใช้ในไฟล์นี้
@@ -46,13 +45,12 @@ import type {
   AppNotification,
   AppUser,
   RoleName,
-  PermissionAction,
   MemberTier,
   Cultivation,
   CultivationStage,
   OrderStatus,
 } from "@/types";
-import { cultivationStages, permissionActions } from "@/types";
+import { cultivationStages } from "@/types";
 import { currency, compactCurrency, numberFmt } from "@/lib/format";
 
 /* ---------------------------------- Products --------------------------------- */
@@ -206,7 +204,7 @@ export const allCrops = Array.from(
 
 // (types อยู่ใน @/types)
 
-const salespeople = ["ณัฐพล ว.", "จิราภรณ์ ส.", "อดิศักดิ์ ท.", "พรทิพย์ ม."];
+const salespeople = ["admin"];
 const statuses: OrderStatus[] = ["paid", "pending", "processing", "paid", "cancelled", "refunded"];
 
 export const orders: Order[] = Array.from({ length: 24 }, (_, i) => {
@@ -356,10 +354,10 @@ export const notifications: AppNotification[] = [
 export const movements: Movement[] = Array.from({ length: 18 }, (_, i) => ({
   id: `m${i + 1}`,
   code: `MV-26${String(3301 + i)}`,
-  type: (["รับเข้า", "จ่ายออก", "ปรับปรุง", "โอนย้าย"] as const)[i % 4]!,
+  type: (["รับเข้า", "จ่ายออก", "ปรับปรุง", "ปรับปรุง"] as const)[i % 4]!,
   product: products[i % products.length]!.name,
   qty: (i % 4 === 1 ? -1 : 1) * (10 + i * 7),
-  warehouse: ["คลังหลัก", "คลังสาขา 2", "หน้าร้าน"][i % 3]!,
+  warehouse: "คลังหลัก",
   by: salespeople[i % salespeople.length]!,
   date: `2026-08-${String(7 - (i % 7)).padStart(2, "0")}`,
   status: (["completed", "completed", "pending", "draft"] as const)[i % 4]!,
@@ -367,8 +365,6 @@ export const movements: Movement[] = Array.from({ length: 18 }, (_, i) => ({
 
 export const warehouses = [
   { id: "wh1", name: "คลังหลัก", items: 1284, value: 3420000, capacity: 78 },
-  { id: "wh2", name: "คลังสาขา 2", items: 642, value: 1180000, capacity: 46 },
-  { id: "wh3", name: "หน้าร้าน", items: 318, value: 420000, capacity: 62 },
 ];
 
 export const stockMovementChart = [
@@ -473,136 +469,20 @@ export const promotions: Promotion[] = [
 export const appUsers: AppUser[] = [
   {
     id: "u1",
-    name: "ธนกร ปุ๋ยไทย",
-    email: "owner@puithai.co.th",
+    name: "admin",
+    email: "admin@puithai.co.th",
     role: "Owner",
     branch: "สำนักงานใหญ่",
     status: "active",
     lastActive: "ออนไลน์",
   },
-  {
-    id: "u2",
-    name: "จิราภรณ์ สุขใจ",
-    email: "jira@puithai.co.th",
-    role: "Manager",
-    branch: "สำนักงานใหญ่",
-    status: "active",
-    lastActive: "12 นาที",
-  },
-  {
-    id: "u3",
-    name: "ณัฐพล วงศ์ดี",
-    email: "nat@puithai.co.th",
-    role: "Sales",
-    branch: "สาขานครราชสีมา",
-    status: "active",
-    lastActive: "1 ชม.",
-  },
-  {
-    id: "u4",
-    name: "พรทิพย์ มณี",
-    email: "porn@puithai.co.th",
-    role: "Cashier",
-    branch: "หน้าร้าน",
-    status: "active",
-    lastActive: "3 ชม.",
-  },
-  {
-    id: "u5",
-    name: "อดิศักดิ์ ทองสุข",
-    email: "adi@puithai.co.th",
-    role: "Warehouse",
-    branch: "คลังหลัก",
-    status: "active",
-    lastActive: "เมื่อวาน",
-  },
-  {
-    id: "u6",
-    name: "สุริยา แก้วใส",
-    email: "suri@puithai.co.th",
-    role: "Sales",
-    branch: "สาขาขอนแก่น",
-    status: "invited",
-    lastActive: "—",
-  },
-  {
-    id: "u7",
-    name: "วรรณา ศรีทอง",
-    email: "wanna@puithai.co.th",
-    role: "Cashier",
-    branch: "หน้าร้าน",
-    status: "suspended",
-    lastActive: "3 สัปดาห์",
-  },
 ];
 
 export const roles: Array<{ name: RoleName; desc: string; members: number }> = [
   { name: "Owner", desc: "สิทธิ์เต็มทุกโมดูล รวมการตั้งค่าระบบและการเงิน", members: 1 },
-  { name: "Manager", desc: "ดูแลการขาย คลัง และอนุมัติเอกสาร", members: 1 },
-  { name: "Cashier", desc: "ใช้งาน POS รับชำระเงิน และพิมพ์ใบเสร็จ", members: 2 },
-  { name: "Sales", desc: "จัดการลูกค้า ใบเสนอราคา และคำสั่งขาย", members: 2 },
-  { name: "Warehouse", desc: "รับเข้า จ่ายออก ปรับปรุง และตรวจนับสต็อก", members: 1 },
 ];
 
-// (permissionActions, PermissionAction อยู่ใน @/types)
-
-export const permissionModules = [
-  "Dashboard",
-  "Customer CRM",
-  "POS",
-  "Products",
-  "Inventory",
-  "Sales",
-  "Promotion",
-  "User & Permission",
-];
-
-const grant: Record<RoleName, Record<string, PermissionAction[]>> = {
-  Owner: Object.fromEntries(permissionModules.map((m) => [m, [...permissionActions]])) as Record<
-    string,
-    PermissionAction[]
-  >,
-  Manager: Object.fromEntries(
-    permissionModules.map((m) => [
-      m,
-      m === "User & Permission"
-        ? ["View"]
-        : (["View", "Create", "Update", "Approve", "Export", "Print"] as PermissionAction[]),
-    ]),
-  ) as Record<string, PermissionAction[]>,
-  Cashier: {
-    Dashboard: ["View"],
-    "Customer CRM": ["View", "Create"],
-    POS: ["View", "Create", "Print"],
-    Products: ["View"],
-    Inventory: ["View"],
-    Sales: ["View", "Create", "Print"],
-    Promotion: ["View"],
-    "User & Permission": [],
-  },
-  Sales: {
-    Dashboard: ["View"],
-    "Customer CRM": ["View", "Create", "Update", "Export"],
-    POS: ["View", "Create"],
-    Products: ["View"],
-    Inventory: ["View"],
-    Sales: ["View", "Create", "Update", "Export", "Print"],
-    Promotion: ["View"],
-    "User & Permission": [],
-  },
-  Warehouse: {
-    Dashboard: ["View"],
-    "Customer CRM": [],
-    POS: [],
-    Products: ["View", "Update"],
-    Inventory: ["View", "Create", "Update", "Delete", "Export", "Print"],
-    Sales: ["View"],
-    Promotion: [],
-    "User & Permission": [],
-  },
-};
-
-export const permissionMatrix = grant;
+// ระบบนี้ใช้งานโดย admin คนเดียว — ไม่มีระบบ multi-role/permission แล้ว
 
 /* ----------------------------------- Docs ------------------------------------ */
 
@@ -634,7 +514,7 @@ export const timeline = [
   {
     id: "t2",
     title: "จัดส่งสินค้าแล้ว",
-    desc: "ส่งโดยรถบรรทุกสาขานครราชสีมา",
+    desc: "ส่งโดยรถบรรทุกขนส่ง",
     time: "7 ส.ค. 2026 · 10:05",
   },
   {

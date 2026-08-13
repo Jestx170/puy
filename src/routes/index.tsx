@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -28,6 +28,9 @@ import {
   Loader2,
   TrendingUp,
   PiggyBank,
+  Sprout,
+  PhoneCall,
+  Clock,
 } from "lucide-react";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -41,14 +44,17 @@ import {
   bestCustomers as seedBestCustomers,
   compactCurrency,
   currency,
+  customers as seedCustomers,
   lowStockProducts as seedLowStock,
   notifications as seedNotifications,
   numberFmt,
   orders as seedOrders,
+  products as seedProducts,
   revenueTrend as seedRevenueTrend,
   salesByDay as seedSalesByDay,
   topProducts as seedTopProducts,
 } from "@/data/mock";
+import { findFollowUps, forecastDemand } from "@/lib/agronomy";
 import {
   dashboardApi,
   type BestCustomer,
@@ -191,6 +197,12 @@ function Dashboard() {
     queryFn: () => dashboardApi.profitByMonth(),
     placeholderData: seedProfitByMonth,
   });
+
+  // วิเคราะห์การเพาะปลูก: ลูกค้าที่ควรติดต่อ + พยากรณ์ความต้องการสินค้า
+  const followUps = useMemo(() => findFollowUps(seedCustomers, seedProducts, 21), []);
+  const demand = useMemo(() => forecastDemand(seedCustomers, seedProducts, 30), []);
+  const opportunityTotal = followUps.reduce((s, f) => s + f.opportunity, 0);
+  const demandShortfall = demand.filter((d) => d.shortfall > 0);
 
   const profitData = profitView === "day" ? profitByDay : profitByMonth;
   const monthMargin =
@@ -512,6 +524,120 @@ function Dashboard() {
         </div>
       </Widget>
 
+      {/* วิเคราะห์การเพาะปลูก → โอกาสขาย */}
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Widget
+          title="ลูกค้าที่ควรติดต่อ"
+          subtitle={
+            followUps.length > 0
+              ? `${followUps.length} แปลงเปลี่ยนช่วงการปลูก · โอกาสขาย ${currency(opportunityTotal)}`
+              : "ไม่มีแปลงที่ต้องติดตามในช่วงนี้"
+          }
+          action={
+            <Button variant="ghost" size="sm" className="rounded-lg text-xs" asChild>
+              <Link to="/customers">
+                ดูลูกค้า <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          }
+        >
+          {followUps.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              ทุกแปลงอยู่ในช่วงที่บันทึกไว้ตรงตามปฏิทิน
+            </p>
+          ) : (
+            <ul className="divide-y">
+              {followUps.slice(0, 6).map((f) => (
+                <li key={`${f.customer.id}-${f.cultivation.id}`} className="flex gap-3 px-4 py-3">
+                  <span
+                    className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg ${
+                      f.kind === "overdue" ? "bg-warning/15 text-warning" : "bg-info/12 text-info"
+                    }`}
+                  >
+                    {f.kind === "overdue" ? (
+                      <AlertTriangle className="size-4" />
+                    ) : (
+                      <Clock className="size-4" />
+                    )}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold">{f.customer.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      <Sprout className="mr-1 inline size-3" />
+                      {f.cultivation.crop} · {f.cultivation.area} ไร่ ·{" "}
+                      {f.kind === "overdue"
+                        ? `ควรอยู่ช่วง ${f.progress.expectedStage} แล้ว`
+                        : `อีก ${f.progress.daysToNextStage} วันเข้า ${f.progress.nextStage}`}
+                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">
+                      เสนอสินค้าช่วง{" "}
+                      <span className="font-medium text-foreground">{f.targetStage}</span>
+                    </p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-semibold tabular-nums text-primary">
+                      {compactCurrency(f.opportunity)}
+                    </p>
+                    <a
+                      href={`tel:${f.customer.phone}`}
+                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary"
+                    >
+                      <PhoneCall className="size-3" /> โทร
+                    </a>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Widget>
+
+        <Widget
+          title="พยากรณ์ความต้องการสินค้า"
+          subtitle={`30 วันข้างหน้า · มูลค่า ${currency(demand.reduce((s, d) => s + d.value, 0))}${
+            demandShortfall.length > 0 ? ` · ${demandShortfall.length} รายการสต็อกไม่พอ` : ""
+          }`}
+          action={
+            <Button variant="ghost" size="sm" className="rounded-lg text-xs" asChild>
+              <Link to="/inventory">
+                จัดการคลัง <ArrowRight className="size-3.5" />
+              </Link>
+            </Button>
+          }
+        >
+          {demand.length === 0 ? (
+            <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+              ยังไม่มีข้อมูลแปลงเพาะปลูกเพียงพอต่อการพยากรณ์
+            </p>
+          ) : (
+            <ul className="divide-y">
+              {demand.slice(0, 6).map((d) => (
+                <li key={d.product.id} className="flex items-center gap-3 px-4 py-3">
+                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-base">
+                    {d.product.emoji}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium">{d.product.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      ต้องใช้ {numberFmt(d.qty)} {d.product.unit} · {d.plots} แปลง · สต็อก{" "}
+                      {numberFmt(d.stock)}
+                    </p>
+                    {d.shortfall > 0 && (
+                      <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-warning">
+                        <AlertTriangle className="size-3 shrink-0" />
+                        ต้องสั่งเพิ่ม {numberFmt(d.shortfall)} {d.product.unit}
+                      </p>
+                    )}
+                  </div>
+                  <p className="shrink-0 text-right text-sm font-semibold tabular-nums">
+                    {compactCurrency(d.value)}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Widget>
+      </div>
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Widget title="สินค้าขายดี" subtitle="เรียงตามจำนวนที่ขายได้เดือนนี้">
           <ul className="divide-y">
@@ -624,7 +750,7 @@ function Dashboard() {
             </ul>
           </Widget>
 
-          <Widget title="การแจ้งเตือน" subtitle="ระบบและทีมงาน">
+          <Widget title="การแจ้งเตือน" subtitle="ระบบ">
             <ul className="divide-y">
               {notifications.slice(0, 3).map((n) => (
                 <li key={n.id} className="flex gap-3 px-4 py-2.5">
@@ -640,7 +766,7 @@ function Dashboard() {
         </div>
       </div>
 
-      <Widget title="กิจกรรมลูกค้าและทีมงาน" subtitle="บันทึกการทำงานล่าสุด">
+      <Widget title="กิจกรรมล่าสุด" subtitle="บันทึกการทำงาน">
         <ol className="relative space-y-4 px-5 py-4">
           {activities.map((a) => (
             <li key={a.id} className="relative flex gap-3 pl-5">

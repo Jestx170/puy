@@ -33,10 +33,10 @@ export const Route = createFileRoute("/inventory/")({
       { title: "คลังสินค้า — ปุ๋ยไทย CRM" },
       {
         name: "description",
-        content: "ภาพรวมสต็อกคงเหลือ การเคลื่อนไหว การปรับปรุงล่าสุด และสินค้าใกล้หมดในทุกคลัง",
+        content: "ภาพรวมสต็อกคงเหลือ การเคลื่อนไหว การปรับปรุงล่าสุด และสินค้าใกล้หมด",
       },
       { property: "og:title", content: "คลังสินค้า — ปุ๋ยไทย CRM" },
-      { property: "og:description", content: "บริหารสต็อกหลายคลังในหน้าเดียว" },
+      { property: "og:description", content: "บริหารสต็อกสินค้าในหน้าเดียว" },
       { property: "og:url", content: "/inventory" },
     ],
     links: [{ rel: "canonical", href: "/inventory" }],
@@ -55,7 +55,7 @@ function InventoryOverview() {
     <div className="space-y-5 p-4 sm:p-6">
       <PageHeader
         title="คลังสินค้า"
-        description="ภาพรวมสต็อกทั้ง 3 คลัง · อัปเดตทุก 15 นาที"
+        description="ภาพรวมสต็อกทั้งหมด · อัปเดตทุก 15 นาที"
         crumbs={[{ label: "คลังสินค้า" }]}
         actions={
           <>
@@ -78,7 +78,7 @@ function InventoryOverview() {
           label="สต็อกคงเหลือรวม"
           value={numberFmt(2244)}
           delta={4.8}
-          hint="ทุกคลังรวมกัน"
+          hint="สินค้าทั้งหมด"
           icon={Boxes}
         />
         <StatCard

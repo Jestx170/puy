@@ -86,7 +86,7 @@ function LoginPage() {
               ปิดการขายไวในไม่กี่คลิก
             </li>
             <li className="flex items-center gap-2">
-              <span className="size-1.5 rounded-full bg-primary-foreground" /> บริหารสต็อกหลายคลัง
+              <span className="size-1.5 rounded-full bg-primary-foreground" /> บริหารสต็อกสินค้า
             </li>
           </ul>
         </div>
