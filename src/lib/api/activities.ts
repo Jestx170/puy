@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import type { ActivityItem } from "@/data/mock";
+import type { ActivityItem } from "@/types";
 
 function rowToActivity(r: DbActivity): ActivityItem {
   const diffMs = Date.now() - new Date(r.created_at).getTime();

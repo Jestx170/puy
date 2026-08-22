@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import type { Customer, Cultivation, MemberTier } from "@/data/mock";
+import type { Customer, Cultivation, MemberTier } from "@/types";
 
 function rowToCustomer(r: DbCustomer): Customer {
   return {

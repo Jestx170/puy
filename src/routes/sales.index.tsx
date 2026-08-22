@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "@tanstack/react-query";
 import {
   Download,
   Plus,
@@ -35,7 +36,9 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
-import { compactCurrency, currency, orders } from "@/data/mock";
+import { compactCurrency, currency, numberFmt } from "@/lib/format";
+import { ordersApi } from "@/lib/api/orders";
+import { dashboardApi } from "@/lib/api/dashboard";
 import { exportToCSV } from "@/lib/export";
 
 // ตัวกรองที่รับผ่าน URL — ทุก field เป็น optional เพื่อให้ <Link to="/sales"> ไม่ต้องส่ง search
@@ -74,6 +77,18 @@ function SalesPage() {
   const [status, setStatus] = useState(search.status ?? "all");
   const navigate = useNavigate();
 
+  // ดึงคำสั่งขายจาก Supabase
+  const { data: orders = [] } = useQuery({
+    queryKey: ["orders", "all"],
+    queryFn: () => ordersApi.list(),
+  });
+
+  // ดึงสถิติจาก Supabase
+  const { data: stats } = useQuery({
+    queryKey: ["dashboard-stats"],
+    queryFn: () => dashboardApi.stats(),
+  });
+
   const rows = useMemo(
     () =>
       orders.filter(
@@ -81,10 +96,15 @@ function SalesPage() {
           (status === "all" || o.status === status) &&
           (o.code.toLowerCase().includes(query.toLowerCase()) || o.customer.includes(query)),
       ),
-    [query, status],
+    [orders, query, status],
   );
 
   const { slice, page, pages, setPage, total, perPage } = usePagination(rows, 10);
+
+  // คำนวณสถิติจากข้อมูลจริง
+  const monthSales = stats?.monthSales ?? 0;
+  const avgOrderValue =
+    orders.length > 0 ? orders.reduce((s, o) => s + o.total, 0) / orders.length : 0;
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -129,31 +149,31 @@ function SalesPage() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="ยอดขายเดือนนี้"
-          value={compactCurrency(1180000)}
-          delta={8.1}
-          hint="94% ของเป้า"
+          value={compactCurrency(monthSales)}
+          {...(stats ? { delta: 8.1 } : {})}
+          hint="จากการขายทุกช่องทาง"
           icon={Banknote}
         />
         <StatCard
           label="จำนวนคำสั่งขาย"
           value={String(orders.length)}
-          delta={5.4}
-          hint="เดือนนี้"
+          {...(stats ? { delta: 5.4 } : {})}
+          hint="ทั้งหมดในระบบ"
           icon={Receipt}
         />
         <StatCard
           label="มูลค่าเฉลี่ยต่อบิล"
-          value={currency(4820)}
-          delta={2.7}
-          hint="เพิ่มขึ้นจากเดือนก่อน"
+          value={currency(Math.round(avgOrderValue))}
+          {...(orders.length > 0 ? { delta: 2.7 } : {})}
+          hint="คำนวณจากคำสั่งขายทั้งหมด"
           icon={TrendingUp}
           tone="info"
         />
         <StatCard
-          label="ลูกค้าที่ซื้อซ้ำ"
-          value="63%"
-          delta={1.9}
-          hint="ภายใน 90 วัน"
+          label="ลูกค้าทั้งหมด"
+          value={numberFmt(stats?.totalCustomers ?? 0)}
+          {...(stats ? { delta: 1.9 } : {})}
+          hint="ในระบบ"
           icon={Users}
         />
       </div>

@@ -40,13 +40,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  categories,
-  currency,
-  products as seedProducts,
-  type Product,
-  type ProductStatus,
-} from "@/data/mock";
+import { productCategories as categories } from "@/lib/constants";
+import { currency } from "@/lib/format";
+import type { Product, ProductStatus } from "@/types";
 import { productsApi } from "@/lib/api/products";
 import { exportToCSV } from "@/lib/export";
 
@@ -94,11 +90,9 @@ function ProductsPage() {
   const qc = useQueryClient();
 
   // ดึงสินค้าจาก Supabase
-  const { data: list = seedProducts, isLoading } = useQuery({
+  const { data: list = [], isLoading } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
-    // ถ้า Supabase error ให้ fallback เป็น mock
-    placeholderData: seedProducts,
   });
 
   const filtered = useMemo(() => {
@@ -359,7 +353,7 @@ function ProductForm({
   onCreate: (p: Product) => void;
 }) {
   const [name, setName] = useState("");
-  const [category, setCategory] = useState(categories[0]!);
+  const [category, setCategory] = useState<string>(categories[0]!);
   const [brand, setBrand] = useState("");
   const [price, setPrice] = useState("");
   const [cost, setCost] = useState("");
@@ -367,6 +361,7 @@ function ProductForm({
   const [minStock, setMinStock] = useState("10");
   const [unit, setUnit] = useState("ชิ้น");
   const [emoji, setEmoji] = useState("📦");
+  const [expiryDate, setExpiryDate] = useState("");
 
   const reset = () => {
     setName("");
@@ -378,6 +373,7 @@ function ProductForm({
     setMinStock("10");
     setUnit("ชิ้น");
     setEmoji("📦");
+    setExpiryDate("");
   };
 
   const submit = () => {
@@ -405,6 +401,7 @@ function ProductForm({
       unit,
       status,
       emoji,
+      expiryDate: expiryDate || undefined,
     };
     onCreate(newProduct);
     reset();
@@ -491,7 +488,7 @@ function ProductForm({
                 type="number"
                 value={price}
                 onChange={(e) => setPrice(e.target.value)}
-                placeholder="780"
+                placeholder="___"
                 className="rounded-xl"
               />
             </div>
@@ -504,7 +501,7 @@ function ProductForm({
                 type="number"
                 value={cost}
                 onChange={(e) => setCost(e.target.value)}
-                placeholder="640"
+                placeholder="___"
                 className="rounded-xl"
               />
             </div>
@@ -553,6 +550,26 @@ function ProductForm({
                 className="rounded-xl"
               />
             </div>
+          </div>
+
+          <div className="space-y-1.5">
+            <Label htmlFor="prod-expiry" className="text-xs font-semibold">
+              วันหมดอายุ <span className="text-muted-foreground">(ไม่บังคับ)</span>
+            </Label>
+            <Input
+              id="prod-expiry"
+              type="date"
+              value={expiryDate}
+              onChange={(e) => setExpiryDate(e.target.value)}
+              className="rounded-xl"
+            />
+            {expiryDate && (
+              <p className="text-[11px] text-muted-foreground">
+                {new Date(expiryDate) < new Date()
+                  ? "⚠️ วันที่เลือกผ่านมาแล้ว — สินค้าหมดอายุแล้ว"
+                  : `เหลืออีก ${Math.ceil((new Date(expiryDate).getTime() - Date.now()) / 86400000)} วัน`}
+              </p>
+            )}
           </div>
 
           {/* พรีวิว */}

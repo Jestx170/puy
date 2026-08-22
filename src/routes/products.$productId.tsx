@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Printer, Trash2, ArrowLeft, Loader2 } from "lucide-react";
+import { Pencil, Plus, Printer, Trash2, ArrowLeft, Loader2, CalendarClock } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -36,21 +36,16 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { currency, categories, products as seedProducts, type Product } from "@/data/mock";
+import { currency } from "@/lib/format";
+import { productCategories as categories } from "@/lib/constants";
+import type { Product } from "@/types";
 import { productsApi } from "@/lib/api/products";
 
 export const Route = createFileRoute("/products/$productId")({
   // loader ดึงสินค้าจาก Supabase ก่อน render — ถ้าหาไม่เจอจะ 404
-  // ถ้า Supabase ล่ม จะ fallback ไปหาใน mock
   loader: async ({ params }) => {
-    try {
-      const product = await productsApi.get(params.productId);
-      return { product };
-    } catch {
-      const mock = seedProducts.find((p) => p.id === params.productId);
-      if (!mock) throw notFound();
-      return { product: mock };
-    }
+    const product = await productsApi.get(params.productId);
+    return { product };
   },
   head: ({ loaderData }) => {
     if (!loaderData) {
@@ -78,11 +73,33 @@ export const Route = createFileRoute("/products/$productId")({
   component: ProductDetail,
 });
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({
+  label,
+  value,
+  tone = "default",
+}: {
+  label: string;
+  value: string;
+  tone?: "default" | "warning" | "danger";
+}) {
   return (
-    <div className="rounded-xl border p-3">
+    <div
+      className={`rounded-xl border p-3 ${
+        tone === "danger"
+          ? "border-destructive/25 bg-destructive/5"
+          : tone === "warning"
+            ? "border-warning/30 bg-warning/10"
+            : ""
+      }`}
+    >
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className="mt-0.5 truncate text-sm font-semibold">{value}</p>
+      <p
+        className={`mt-0.5 truncate text-sm font-semibold ${
+          tone === "danger" ? "text-destructive" : tone === "warning" ? "text-warning" : ""
+        }`}
+      >
+        {value}
+      </p>
     </div>
   );
 }
@@ -102,10 +119,9 @@ function ProductDetail() {
   });
 
   // ดึงรายการสินค้าทั้งหมดสำหรับ "สินค้าที่เกี่ยวข้อง"
-  const { data: allProducts = seedProducts } = useQuery({
+  const { data: allProducts = [] } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
-    placeholderData: seedProducts,
   });
 
   const margin = Math.round(((p.price - p.cost) / p.price) * 100);
@@ -113,9 +129,13 @@ function ProductDetail() {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      await productsApi.remove(p.id);
+      const result = await productsApi.remove(p.id);
       qc.invalidateQueries({ queryKey: ["products"] });
-      toast.success(`ลบสินค้า "${p.name}" แล้ว`);
+      toast.success(
+        result === "soft"
+          ? `ซ่อน "${p.name}" จากแคตตาล็อกแล้ว (มีประวัติขาย — เก็บไว้ใช้ในรายงาน)`
+          : `ลบสินค้า "${p.name}" แล้ว`,
+      );
       navigate({ to: "/products" });
     } catch (e) {
       toast.error("ลบสินค้าไม่สำเร็จ", { description: (e as Error).message });
@@ -237,7 +257,42 @@ function ProductDetail() {
               <Field label="ต้นทุน" value={currency(p.cost)} />
               <Field label="สต็อกคงเหลือ" value={`${p.stock} ${p.unit}`} />
               <Field label="สต็อกขั้นต่ำ" value={`${p.minStock} ${p.unit}`} />
+              {p.expiryDate && (
+                <Field
+                  label="วันหมดอายุ"
+                  value={p.expiryDate}
+                  tone={
+                    new Date(p.expiryDate) < new Date()
+                      ? "danger"
+                      : new Date(p.expiryDate) <= new Date(Date.now() + 7 * 86400000)
+                        ? "warning"
+                        : "default"
+                  }
+                />
+              )}
             </div>
+
+            {/* แจ้งเตือนสินค้าใกล้หมดอายุ */}
+            {p.expiryDate && new Date(p.expiryDate) <= new Date(Date.now() + 30 * 86400000) && (
+              <div
+                className={`mt-3 flex items-center gap-2 rounded-xl border p-3 text-sm ${
+                  new Date(p.expiryDate) < new Date()
+                    ? "border-destructive/25 bg-destructive/5 text-destructive"
+                    : new Date(p.expiryDate) <= new Date(Date.now() + 7 * 86400000)
+                      ? "border-warning/30 bg-warning/10 text-warning"
+                      : "border-info/25 bg-info/5 text-info"
+                }`}
+              >
+                <CalendarClock className="size-4 shrink-0" />
+                <span>
+                  {new Date(p.expiryDate) < new Date()
+                    ? `สินค้านี้หมดอายุแล้วเมื่อ ${p.expiryDate} — ควรเอาออกจากการขาย`
+                    : new Date(p.expiryDate) <= new Date(Date.now() + 7 * 86400000)
+                      ? `สินค้าจะหมดอายุภายใน ${Math.ceil((new Date(p.expiryDate).getTime() - Date.now()) / 86400000)} วัน — รีบขายหรือโปรโมชัน`
+                      : `สินค้าจะหมดอายุใน ${Math.ceil((new Date(p.expiryDate).getTime() - Date.now()) / 86400000)} วัน`}
+                </span>
+              </div>
+            )}
           </section>
 
           <section className="card-soft p-4">

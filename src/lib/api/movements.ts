@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import type { Movement } from "@/data/mock";
+import type { Movement } from "@/types";
 
 function rowToMovement(r: DbMovement): Movement {
   return {
@@ -12,6 +12,10 @@ function rowToMovement(r: DbMovement): Movement {
     by: r.by_user,
     date: r.date,
     status: r.status as Movement["status"],
+    stockBefore: r.stock_before,
+    stockAfter: r.stock_after,
+    reference: r.reference,
+    note: r.note,
   };
 }
 
@@ -28,33 +32,38 @@ export const movementsApi = {
     return (data as DbMovement[]).map(rowToMovement);
   },
 
+  /**
+   * บันทึก stock movement แบบ atomic ผ่าน RPC `record_stock_movement`
+   * - ป้องกัน negative stock (DB CHECK constraint + explicit check)
+   * - บันทึก audit trail (stock_before/after)
+   * - อัปเดต products.stock ใน transaction เดียวกัน
+   * - trigger คำนวณ products.status อัตโนมัติ
+   *
+   * สำหรับ "จ่ายออก" qty จะถูกลบจาก stock
+   * สำหรับ "รับเข้า"/"ปรับปรุง" qty จะถูกบวกเข้า stock
+   */
   async create(m: {
-    code: string;
     type: Movement["type"];
     productId: string;
     productName: string;
     qty: number;
-    warehouse: string;
+    warehouse?: string;
     by: string;
     note?: string | undefined;
+    reference?: string | undefined;
   }): Promise<Movement> {
-    const { data, error } = await supabase
-      .from("stock_movements")
-      .insert({
-        code: m.code,
-        type: m.type,
-        product_id: m.productId,
-        product_name: m.productName,
-        qty: m.qty,
-        warehouse: m.warehouse,
-        by_user: m.by,
-        note: m.note,
-        status: "completed",
-      })
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc("record_stock_movement", {
+      p_product_id: m.productId,
+      p_type: m.type,
+      p_qty: Math.abs(m.qty),
+      p_warehouse: m.warehouse ?? "คลังหลัก",
+      p_by_user: m.by,
+      p_note: m.note ?? null,
+      p_reference: m.reference ?? null,
+    });
     if (error) throw error;
-    return rowToMovement(data as DbMovement);
+    // RPC คืน row ของ stock_movements โดยตรง
+    return rowToMovement(data as unknown as DbMovement);
   },
 };
 
@@ -68,6 +77,9 @@ interface DbMovement {
   warehouse: string;
   by_user: string;
   note: string | null;
+  reference: string | null;
+  stock_before: number | null;
+  stock_after: number | null;
   status: string;
   date: string;
   created_at: string;

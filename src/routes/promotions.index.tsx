@@ -67,7 +67,8 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { categories, promotions, type Promotion } from "@/data/mock";
+import { productCategories as categories } from "@/lib/constants";
+import type { Promotion } from "@/types";
 import { exportToCSV } from "@/lib/export";
 
 export const Route = createFileRoute("/promotions/")({
@@ -107,7 +108,7 @@ function PromotionsPage() {
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState("priority");
-  const [list, setList] = useState<Promotion[]>(promotions);
+  const [list, setList] = useState<Promotion[]>([]);
   const [builderOpen, setBuilderOpen] = useState(false);
 
   const filtered = useMemo(() => {

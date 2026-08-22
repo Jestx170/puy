@@ -34,12 +34,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  movements as seedMovements,
-  numberFmt,
-  products as seedProducts,
-  type Movement,
-} from "@/data/mock";
+import { numberFmt } from "@/lib/format";
+import type { Movement } from "@/types";
 import { movementsApi } from "@/lib/api/movements";
 import { productsApi } from "@/lib/api/products";
 
@@ -60,10 +56,9 @@ export function InventoryOpsPage({
   const qc = useQueryClient();
 
   // ดึง movements จาก Supabase
-  const { data: list = seedMovements, isLoading } = useQuery({
+  const { data: list = [], isLoading } = useQuery({
     queryKey: ["movements", type ?? "all"],
     queryFn: () => movementsApi.list({ type }),
-    placeholderData: seedMovements,
   });
 
   const rows = useMemo(
@@ -215,11 +210,12 @@ function MovementForm({
   actionLabel: string;
   onCreate: (m: Movement) => void;
 }) {
+  const qc = useQueryClient();
+
   // ดึง products จาก Supabase
-  const { data: products = seedProducts } = useQuery({
+  const { data: products = [] } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
-    placeholderData: seedProducts,
   });
 
   // ค่าเริ่มต้นของฟอร์ม — สาขาเดียว ใช้ "คลังหลัก" เสมอ
@@ -254,9 +250,18 @@ function MovementForm({
     // กำหนดเครื่องหมายจำนวนตามประเภท: จ่ายออก = ลบ, อื่น ๆ = บวก
     const signedQty = moveType === "จ่ายออก" ? -Math.abs(qtyNum) : Math.abs(qtyNum);
 
+    if (moveType === "จ่ายออก" && Math.abs(signedQty) > product.stock) {
+      toast.error(`สต็อก ${product.name} เหลือเพียง ${product.stock} ${product.unit}`);
+      return;
+    }
+
     try {
+      // RPC record_stock_movement ทำทุกอย่างใน transaction เดียว:
+      // - สร้าง stock_movement (พร้อม audit trail stock_before/after)
+      // - อัปเดต products.stock
+      // - trigger คำนวณ products.status อัตโนมัติ
+      // - ป้องกัน negative stock (DB CHECK constraint)
       const created = await movementsApi.create({
-        code: `MV-26${String(3400 + Math.floor(Math.random() * 999))}`,
         type: moveType,
         productId: product.id,
         productName: product.name,
@@ -265,6 +270,10 @@ function MovementForm({
         by: by.trim() || "admin",
         note: note.trim() || undefined,
       });
+      qc.invalidateQueries({ queryKey: ["products"] });
+      qc.invalidateQueries({ queryKey: ["movements"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      qc.invalidateQueries({ queryKey: ["low-stock-products"] });
       onCreate(created);
       reset();
       onOpenChange(false);

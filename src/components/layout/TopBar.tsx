@@ -42,7 +42,6 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { useAuth } from "@/lib/auth";
-import { notifications as seedNotifications } from "@/data/mock";
 import { notificationsApi } from "@/lib/api/notifications";
 import type { AppNotification } from "@/types";
 
@@ -73,10 +72,9 @@ export function TopBar() {
   const { logout, user } = useAuth();
   const qc = useQueryClient();
 
-  const { data: notifications = seedNotifications } = useQuery({
+  const { data: notifications = [] } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => notificationsApi.list(10),
-    placeholderData: seedNotifications,
   });
   const unread = notifications.filter((n) => n.unread).length;
 

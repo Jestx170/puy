@@ -39,21 +39,7 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
-import {
-  activities as seedActivities,
-  bestCustomers as seedBestCustomers,
-  compactCurrency,
-  currency,
-  customers as seedCustomers,
-  lowStockProducts as seedLowStock,
-  notifications as seedNotifications,
-  numberFmt,
-  orders as seedOrders,
-  products as seedProducts,
-  revenueTrend as seedRevenueTrend,
-  salesByDay as seedSalesByDay,
-  topProducts as seedTopProducts,
-} from "@/data/mock";
+import { compactCurrency, currency, numberFmt } from "@/lib/format";
 import { findFollowUps, forecastDemand } from "@/lib/agronomy";
 import {
   dashboardApi,
@@ -65,7 +51,9 @@ import {
 import { ordersApi } from "@/lib/api/orders";
 import { activitiesApi } from "@/lib/api/activities";
 import { notificationsApi } from "@/lib/api/notifications";
-import type { Product } from "@/data/mock";
+import { customersApi } from "@/lib/api/customers";
+import { productsApi } from "@/lib/api/products";
+import type { Product, Customer } from "@/types";
 import { exportToCSV } from "@/lib/export";
 
 export const Route = createFileRoute("/")({
@@ -126,81 +114,77 @@ function Widget({
   );
 }
 
-// seed fallback สำหรับกราฟกำไร
-const seedProfitByDay: ProfitByDay[] = seedSalesByDay.map((d) => ({
-  day: d.day,
-  revenue: d.sales,
-  cogs: Math.round(d.sales * 0.72),
-  profit: Math.round(d.sales * 0.28),
-}));
-const seedProfitByMonth: ProfitByMonth[] = seedRevenueTrend.map((d) => ({
-  month: d.month,
-  revenue: d.revenue,
-  cogs: Math.round(d.revenue * 0.7),
-  profit: Math.round(d.revenue * 0.3),
-}));
+// ค่าเริ่มต้นว่างสำหรับกราฟกำไร (ก่อน Supabase ตอบกลับ)
+const emptyProfitByDay: ProfitByDay[] = [];
+const emptyProfitByMonth: ProfitByMonth[] = [];
 
 function Dashboard() {
   const [profitView, setProfitView] = useState<"day" | "month">("day");
-  // ดึงข้อมูลจาก Supabase พร้อม fallback เป็น mock
+  // ดึงข้อมูลจาก Supabase
   const { data: stats } = useQuery({
     queryKey: ["dashboard-stats"],
     queryFn: () => dashboardApi.stats(),
   });
-  const { data: salesByDay = seedSalesByDay } = useQuery({
+  const { data: salesByDay = [] } = useQuery({
     queryKey: ["sales-by-day"],
     queryFn: () => dashboardApi.salesByDay(),
-    placeholderData: seedSalesByDay,
   });
-  const { data: revenueTrend = seedRevenueTrend } = useQuery({
+  const { data: revenueTrend = [] } = useQuery({
     queryKey: ["revenue-trend"],
     queryFn: () => dashboardApi.revenueTrend(),
-    placeholderData: seedRevenueTrend,
   });
-  const { data: topProducts = seedTopProducts } = useQuery({
+  const { data: topProducts = [] } = useQuery({
     queryKey: ["top-products"],
     queryFn: () => dashboardApi.topProducts(),
-    placeholderData: seedTopProducts as unknown as TopProduct[],
   });
-  const { data: bestCustomers = seedBestCustomers } = useQuery({
+  const { data: bestCustomers = [] } = useQuery({
     queryKey: ["best-customers"],
     queryFn: () => dashboardApi.bestCustomers(),
-    placeholderData: seedBestCustomers as unknown as BestCustomer[],
   });
-  const { data: lowStockProducts = seedLowStock } = useQuery({
+  const { data: lowStockProducts = [] } = useQuery({
     queryKey: ["low-stock-products"],
     queryFn: () => dashboardApi.lowStockProducts(),
-    placeholderData: seedLowStock,
   });
-  const { data: recentOrders = seedOrders } = useQuery({
+  const { data: recentOrders = [] } = useQuery({
     queryKey: ["recent-orders"],
     queryFn: () => ordersApi.list({ limit: 6 }),
-    placeholderData: seedOrders,
   });
-  const { data: activities = seedActivities } = useQuery({
+  const { data: activities = [] } = useQuery({
     queryKey: ["activities"],
     queryFn: () => activitiesApi.list(6),
-    placeholderData: seedActivities,
   });
-  const { data: notifications = seedNotifications } = useQuery({
+  const { data: notifications = [] } = useQuery({
     queryKey: ["notifications"],
     queryFn: () => notificationsApi.list(3),
-    placeholderData: seedNotifications,
   });
-  const { data: profitByDay = seedProfitByDay } = useQuery({
+  const { data: profitByDay = emptyProfitByDay } = useQuery({
     queryKey: ["profit-by-day"],
     queryFn: () => dashboardApi.profitByDay(),
-    placeholderData: seedProfitByDay,
   });
-  const { data: profitByMonth = seedProfitByMonth } = useQuery({
+  const { data: profitByMonth = emptyProfitByMonth } = useQuery({
     queryKey: ["profit-by-month"],
     queryFn: () => dashboardApi.profitByMonth(),
-    placeholderData: seedProfitByMonth,
+  });
+
+  // ดึงลูกค้าและสินค้าจริงสำหรับวิเคราะห์การเพาะปลูก
+  const { data: customers = [] } = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => customersApi.list(),
+  });
+  const { data: products = [] } = useQuery({
+    queryKey: ["products"],
+    queryFn: () => productsApi.list(),
   });
 
   // วิเคราะห์การเพาะปลูก: ลูกค้าที่ควรติดต่อ + พยากรณ์ความต้องการสินค้า
-  const followUps = useMemo(() => findFollowUps(seedCustomers, seedProducts, 21), []);
-  const demand = useMemo(() => forecastDemand(seedCustomers, seedProducts, 30), []);
+  const followUps = useMemo(
+    () => (customers.length && products.length ? findFollowUps(customers, products, 21) : []),
+    [customers, products],
+  );
+  const demand = useMemo(
+    () => (customers.length && products.length ? forecastDemand(customers, products, 30) : []),
+    [customers, products],
+  );
   const opportunityTotal = followUps.reduce((s, f) => s + f.opportunity, 0);
   const demandShortfall = demand.filter((d) => d.shortfall > 0);
 
@@ -254,30 +238,34 @@ function Dashboard() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="ยอดขายวันนี้"
-          value={currency(stats?.todaySales ?? 91240)}
-          delta={12.4}
+          value={currency(stats?.todaySales ?? 0)}
+          {...(stats ? { delta: 12.4 } : {})}
           hint="เทียบเมื่อวาน"
           icon={Banknote}
         />
         <StatCard
           label="รายได้เดือนนี้"
-          value={compactCurrency(stats?.monthSales ?? 1180000)}
-          delta={8.1}
-          hint="94% ของเป้า"
+          value={compactCurrency(stats?.monthSales ?? 0)}
+          {...(stats ? { delta: 8.1 } : {})}
+          hint="เป้าหมายรายเดือน"
           icon={Wallet}
         />
         <StatCard
           label="กำไรวันนี้"
-          value={currency(stats?.todayProfit ?? 25520)}
-          delta={todayMargin > 0 ? todayMargin : 28}
-          hint={`มาร์จิน ${todayMargin || 28}%`}
+          value={currency(stats?.todayProfit ?? 0)}
+          {...(todayMargin > 0 ? { delta: todayMargin } : {})}
+          hint={todayMargin > 0 ? `มาร์จิน ${todayMargin}%` : "—"}
           icon={PiggyBank}
         />
         <StatCard
           label="กำไรเดือนนี้"
-          value={compactCurrency(stats?.monthProfit ?? 330400)}
-          delta={monthMargin > 0 ? monthMargin : 28}
-          hint={`มาร์จิน ${monthMargin || 28}% · ต้นทุน ${compactCurrency(stats?.monthCogs ?? 849600)}`}
+          value={compactCurrency(stats?.monthProfit ?? 0)}
+          {...(monthMargin > 0 ? { delta: monthMargin } : {})}
+          hint={
+            monthMargin > 0
+              ? `มาร์จิน ${monthMargin}% · ต้นทุน ${compactCurrency(stats?.monthCogs ?? 0)}`
+              : "—"
+          }
           icon={TrendingUp}
         />
       </div>
@@ -285,17 +273,17 @@ function Dashboard() {
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           label="ลูกค้าทั้งหมด"
-          value={numberFmt(stats?.totalCustomers ?? 1284)}
-          delta={3.2}
-          hint="+41 เดือนนี้"
+          value={numberFmt(stats?.totalCustomers ?? 0)}
+          {...(stats ? { delta: 3.2 } : {})}
+          hint="ทั้งระบบ"
           icon={Users}
           tone="info"
         />
         <StatCard
           label="คำสั่งซื้อวันนี้"
-          value={String(stats?.todayOrders ?? 41)}
-          delta={-2.6}
-          hint="ค่าเฉลี่ย ฿2,225/บิล"
+          value={String(stats?.todayOrders ?? 0)}
+          {...(stats ? { delta: -2.6 } : {})}
+          hint="จากการขายทุกช่องทาง"
           icon={ShoppingCart}
         />
         <StatCard
@@ -307,7 +295,7 @@ function Dashboard() {
         />
         <StatCard
           label="รออนุมัติ"
-          value={String(stats?.pendingOrders ?? 7)}
+          value={String(stats?.pendingOrders ?? 0)}
           hint="คำสั่งซื้อรอดำเนินการ"
           icon={Bell}
           tone="info"

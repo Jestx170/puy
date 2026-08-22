@@ -7,7 +7,7 @@ export type Money = number;
 
 // --- Product ---
 
-export type ProductStatus = "active" | "low" | "out" | "draft";
+export type ProductStatus = "active" | "low" | "out" | "draft" | "discontinued";
 
 export interface Product {
   id: string;
@@ -23,6 +23,12 @@ export interface Product {
   unit: string;
   status: ProductStatus;
   emoji: string;
+  /** URL ของรูปภาพสินค้าใน Supabase Storage (ถ้าไม่มีใช้ emoji แทน) */
+  imageUrl?: string | undefined;
+  /** วันหมดอายุสินค้า (ถ้ามี) เช่น "2026-12-31" */
+  expiryDate?: string | undefined;
+  /** soft delete timestamp — ถ้ามีค่าแสดงว่าสินค้าถูกตัดออกจากแคตตาล็อกแล้ว */
+  deletedAt?: string | undefined;
 }
 
 // --- Customer ---
@@ -105,6 +111,18 @@ export interface Order {
   payment: PaymentMethod;
 }
 
+/** รายการสินค้าในออเดอร์ (จากตาราง order_items) */
+export interface OrderItem {
+  id: string;
+  orderId: string;
+  productId: string;
+  productName: string;
+  qty: number;
+  price: number;
+  cost: number;
+  subtotal: number;
+}
+
 // --- Inventory ---
 
 export type MovementType = "รับเข้า" | "จ่ายออก" | "ปรับปรุง" | "โอนย้าย";
@@ -121,6 +139,12 @@ export interface Movement {
   by: string;
   date: string;
   status: MovementStatus;
+  /** audit trail — stock ก่อน/หลังการเคลื่อนไหว */
+  stockBefore?: number | null;
+  stockAfter?: number | null;
+  /** อ้างอิงเอกสารต้นทาง เช่น เลขที่ออเดอร์ POS */
+  reference?: string | null;
+  note?: string | null;
 }
 
 export interface Warehouse {

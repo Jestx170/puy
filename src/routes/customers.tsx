@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Phone,
@@ -17,6 +18,7 @@ import {
   Ruler,
   Eye,
   Trash2,
+  Loader2,
   Printer,
   AlertTriangle,
   TrendingUp,
@@ -34,20 +36,9 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  customers as seedCustomers,
-  currency,
-  orders,
-  products,
-  documents,
-  timeline,
-  cultivationStages,
-  stageTone,
-  allCrops,
-  type CultivationStage,
-  type Customer,
-  type MemberTier,
-} from "@/data/mock";
+import { currency } from "@/lib/format";
+import { cultivationStages, stageTone } from "@/types";
+import type { CultivationStage, Customer, MemberTier, Product } from "@/types";
 import {
   recommendForCustomer,
   recommendForCultivation,
@@ -90,6 +81,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { exportToCSV } from "@/lib/export";
+import { customersApi, cultivationsApi } from "@/lib/api/customers";
+import { productsApi } from "@/lib/api/products";
+import { ordersApi } from "@/lib/api/orders";
 
 export const Route = createFileRoute("/customers")({
   head: () => ({
@@ -120,10 +114,53 @@ function CrmPage() {
   const [tier, setTier] = useState("all");
   const [stage, setStage] = useState("all"); // กรองตามช่วงการปลูก
   const [crop, setCrop] = useState("all"); // กรองตามพืชที่ปลูก
-  const [list, setList] = useState<Customer[]>(seedCustomers);
-  const [selected, setSelected] = useState(seedCustomers[0]!.id);
+  const [selected, setSelected] = useState<string>("");
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
+  const [sellOpen, setSellOpen] = useState(false);
+  const qc = useQueryClient();
+
+  // ดึงลูกค้าจาก Supabase
+  const { data: list = [] } = useQuery({
+    queryKey: ["customers"],
+    queryFn: () => customersApi.list(),
+  });
+
+  // ดึงสินค้าจาก Supabase (สำหรับสินค้าแนะนำ)
+  const { data: products = [] } = useQuery({
+    queryKey: ["products"],
+    queryFn: () => productsApi.list(),
+  });
+
+  // เลือกลูกค้าคนแรกเป็นค่าเริ่มต้นถ้ายังไม่ได้เลือก
+  const effectiveSelected = selected || list[0]?.id || "";
+  const customerBase = list.find((c) => c.id === effectiveSelected) ?? list[0];
+
+  // ดึงแปลงเพาะปลูกของลูกค้าที่เลือกจาก Supabase
+  const { data: cultivationsData = [] } = useQuery({
+    queryKey: ["cultivations", effectiveSelected],
+    queryFn: () => cultivationsApi.listByCustomer(effectiveSelected),
+    enabled: !!effectiveSelected,
+  });
+
+  // รวมแปลงเพาะปลูกเข้ากับ customer object
+  const customerWithCultivations: Customer | undefined = useMemo(
+    () => (customerBase ? { ...customerBase, cultivations: cultivationsData } : undefined),
+    [customerBase, cultivationsData],
+  );
+
+  // ดึงคำสั่งซื้อของลูกค้าจาก Supabase
+  const { data: custOrders = [] } = useQuery({
+    queryKey: ["orders", "customer", effectiveSelected],
+    queryFn: () => ordersApi.listByCustomer(effectiveSelected),
+    enabled: !!effectiveSelected,
+  });
+
+  // ดึงรายการพืชทั้งหมดจากแปลงเพาะปลูกของลูกค้าทั้งระบบ
+  const allCrops = useMemo(
+    () => Array.from(new Set(list.flatMap((c) => c.cultivations.map((cul) => cul.crop)))).sort(),
+    [list],
+  );
 
   const filtered = useMemo(
     () =>
@@ -139,38 +176,47 @@ function CrmPage() {
     [list, query, tier, stage, crop],
   );
 
-  const customer = list.find((c) => c.id === selected) ?? list[0]!;
-  const custOrders = orders.filter((o) => o.customerId === customer.id);
-
-  const addCustomer = (c: Customer) => {
-    setList((prev) => [c, ...prev]);
-    setSelected(c.id);
-    toast.success(`เพิ่มลูกค้าใหม่แล้ว: ${c.name}`);
+  const addCustomer = async (c: Customer) => {
+    try {
+      const created = await customersApi.create(c);
+      qc.setQueryData<Customer[]>(["customers"], (prev) => [created, ...(prev ?? [])]);
+      setSelected(created.id);
+      toast.success(`เพิ่มลูกค้าใหม่แล้ว: ${created.name}`);
+    } catch (e) {
+      toast.error("เพิ่มลูกค้าไม่สำเร็จ", { description: (e as Error).message });
+    }
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (!deleteTarget) return;
-    setList((prev) => prev.filter((c) => c.id !== deleteTarget.id));
-    if (selected === deleteTarget.id) {
-      setSelected(list[0]?.id ?? "");
+    try {
+      await customersApi.remove(deleteTarget.id);
+      qc.setQueryData<Customer[]>(["customers"], (prev) =>
+        (prev ?? []).filter((c) => c.id !== deleteTarget.id),
+      );
+      if (selected === deleteTarget.id) {
+        setSelected("");
+      }
+      toast.success(`ลบลูกค้าแล้ว: ${deleteTarget.name}`);
+    } catch (e) {
+      toast.error("ลบลูกค้าไม่สำเร็จ", { description: (e as Error).message });
     }
-    toast.success(`ลบลูกค้าแล้ว: ${deleteTarget.name}`);
     setDeleteTarget(null);
   };
 
   // สรุปแปลงเพาะปลูกของลูกค้าที่เลือก (เรียงตามช่วงการปลูก)
   const cultivations = useMemo(
     () =>
-      [...customer.cultivations].sort(
+      [...(customerWithCultivations?.cultivations ?? [])].sort(
         (a, b) => cultivationStages.indexOf(a.stage) - cultivationStages.indexOf(b.stage),
       ),
-    [customer],
+    [customerWithCultivations],
   );
 
   // สินค้าแนะนำ คำนวณจากช่วงการปลูก + พื้นที่จริงของทุกแปลง
   const recommendations = useMemo(
-    () => recommendForCustomer(cultivations, products),
-    [cultivations],
+    () => (products.length ? recommendForCustomer(cultivations, products) : []),
+    [cultivations, products],
   );
   const recoTotal = useMemo(
     () => recommendations.reduce((s, i) => s + i.subtotal, 0),
@@ -190,7 +236,7 @@ function CrmPage() {
       docTitle: "ใบเสนอราคา",
       receiptNo: `QT-${Date.now()}`,
       date: new Date().toLocaleDateString("th-TH"),
-      customer: customer.name,
+      customer: customerWithCultivations?.name ?? "",
       lines: recommendations.map((it) => ({
         name: it.product.name,
         qty: it.qty,
@@ -205,6 +251,38 @@ function CrmPage() {
     });
     toast.success("เปิดหน้าต่างพิมพ์ใบเสนอราคาแล้ว");
   };
+
+  // ถ้ายังไม่มีลูกค้าเลย แสดง empty state
+  if (list.length === 0) {
+    return (
+      <div className="space-y-5 p-4 sm:p-6">
+        <PageHeader
+          title="ลูกค้า CRM"
+          description="0 รายชื่อในระบบ"
+          crumbs={[{ label: "ลูกค้า CRM" }]}
+          actions={
+            <Button size="sm" className="rounded-xl" onClick={() => setAddOpen(true)}>
+              <Plus className="size-4" /> เพิ่มลูกค้า
+            </Button>
+          }
+        />
+        <EmptyState
+          icon={UserRound}
+          title="ยังไม่มีลูกค้าในระบบ"
+          description="เพิ่มลูกค้าคนแรกเพื่อเริ่มต้นใช้งาน CRM"
+          action={
+            <Button size="sm" className="rounded-xl" onClick={() => setAddOpen(true)}>
+              <Plus className="size-4" /> เพิ่มลูกค้า
+            </Button>
+          }
+        />
+        <CustomerForm open={addOpen} onOpenChange={setAddOpen} onCreate={addCustomer} />
+      </div>
+    );
+  }
+
+  // หลังจากนี้ customerWithCultivations จะมีค่าเสมอ (list ไม่ว่าง)
+  const customer = customerWithCultivations!;
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -366,7 +444,10 @@ function CrmPage() {
                             <Eye className="size-4" /> ดูโปรไฟล์
                           </ContextMenuItem>
                           <ContextMenuItem
-                            onSelect={() => toast(`สร้างคำสั่งขายใหม่ให้ ${c.name}`)}
+                            onSelect={() => {
+                              setSelected(c.id);
+                              setSellOpen(true);
+                            }}
                           >
                             <Plus className="size-4" /> สร้างคำสั่งขาย
                           </ContextMenuItem>
@@ -411,11 +492,7 @@ function CrmPage() {
               <Button variant="outline" size="sm" className="rounded-xl">
                 <Phone className="size-4" /> โทร
               </Button>
-              <Button
-                size="sm"
-                className="rounded-xl"
-                onClick={() => toast.success("สร้างคำสั่งขายใหม่")}
-              >
+              <Button size="sm" className="rounded-xl" onClick={() => setSellOpen(true)}>
                 <ShoppingBag className="size-4" /> ขายให้ลูกค้านี้
               </Button>
             </div>
@@ -689,39 +766,57 @@ function CrmPage() {
               <div className="rounded-xl border p-4">
                 <h3 className="text-sm font-semibold">ไทม์ไลน์กิจกรรม</h3>
                 <ol className="mt-3 space-y-4">
-                  {timeline.map((t) => (
-                    <li key={t.id} className="relative flex gap-3 pl-5">
-                      <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
+                  <li className="relative flex gap-3 pl-5">
+                    <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium">สมัครสมาชิก</p>
+                      <p className="text-xs text-muted-foreground">ตั้งแต่ {customer.since}</p>
+                    </div>
+                  </li>
+                  {customer.lastOrder && (
+                    <li className="relative flex gap-3 pl-5">
+                      <span className="absolute left-0 top-1.5 size-2 rounded-full bg-success" />
                       <div className="min-w-0">
-                        <p className="text-sm font-medium">{t.title}</p>
-                        <p className="text-xs text-muted-foreground">{t.desc}</p>
-                        <p className="text-[11px] text-muted-foreground/70">{t.time}</p>
+                        <p className="text-sm font-medium">ซื้อครั้งล่าสุด</p>
+                        <p className="text-xs text-muted-foreground">{customer.lastOrder}</p>
                       </div>
                     </li>
-                  ))}
+                  )}
                 </ol>
               </div>
             </TabsContent>
 
             <TabsContent value="history" className="mt-4">
-              <ul className="divide-y rounded-xl border">
-                {products.slice(0, 5).map((p, i) => (
-                  <li key={p.id} className="flex items-center gap-3 p-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
-                      {p.emoji}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{p.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        ซื้อล่าสุด 2026-0{7 - i}-1{i} · {2 + i} {p.unit}
-                      </p>
-                    </div>
-                    <p className="shrink-0 text-sm font-semibold tabular-nums">
-                      {currency(p.price * (2 + i))}
-                    </p>
-                  </li>
-                ))}
-              </ul>
+              {custOrders.length === 0 ? (
+                <EmptyState
+                  icon={ShoppingBag}
+                  title="ยังไม่มีประวัติการซื้อ"
+                  description="เมื่อลูกค้ารายนี้ซื้อสินค้า รายการจะแสดงที่นี่"
+                />
+              ) : (
+                <ul className="divide-y rounded-xl border">
+                  {custOrders.map((o) => {
+                    // ดึง items ของ order นี้เพื่อแสดงสินค้าที่ซื้อ
+                    return (
+                      <li key={o.id} className="flex items-center gap-3 p-3">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
+                          <ShoppingBag className="size-4 text-muted-foreground" />
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium">{o.code}</p>
+                          <p className="text-xs text-muted-foreground">
+                            {o.date} · {o.items} รายการ · {o.payment}
+                          </p>
+                        </div>
+                        <StatusBadge status={o.status} />
+                        <p className="shrink-0 text-sm font-semibold tabular-nums">
+                          {currency(o.total)}
+                        </p>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
             </TabsContent>
 
             <TabsContent value="orders" className="mt-4">
@@ -751,22 +846,11 @@ function CrmPage() {
             </TabsContent>
 
             <TabsContent value="docs" className="mt-4">
-              <ul className="divide-y rounded-xl border">
-                {documents.map((d) => (
-                  <li key={d.id} className="flex items-center gap-3 p-3">
-                    <FileText className="size-4 shrink-0 text-muted-foreground" />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{d.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {d.kind} · {d.size} · {d.date}
-                      </p>
-                    </div>
-                    <Button variant="ghost" size="sm" className="rounded-lg">
-                      <Download className="size-4" />
-                    </Button>
-                  </li>
-                ))}
-              </ul>
+              <EmptyState
+                icon={FileText}
+                title="ยังไม่มีเอกสาร"
+                description="ฟีเจอร์แนบเอกสารจะพร้อมเร็ว ๆ นี้"
+              />
             </TabsContent>
 
             <TabsContent value="reco" className="mt-4 space-y-3">
@@ -859,6 +943,22 @@ function CrmPage() {
       </div>
 
       <CustomerForm open={addOpen} onOpenChange={setAddOpen} onCreate={addCustomer} />
+
+      <SellSheet
+        open={sellOpen}
+        onOpenChange={setSellOpen}
+        customer={customer}
+        products={products}
+        onSold={() => {
+          qc.invalidateQueries({ queryKey: ["customers"] });
+          qc.invalidateQueries({ queryKey: ["orders"] });
+          qc.invalidateQueries({ queryKey: ["products"] });
+          qc.invalidateQueries({ queryKey: ["movements"] });
+          qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+          qc.invalidateQueries({ queryKey: ["low-stock-products"] });
+          qc.invalidateQueries({ queryKey: ["notifications"] });
+        }}
+      />
 
       <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
         <AlertDialogContent className="rounded-2xl">
@@ -1002,8 +1102,10 @@ function CustomerForm({
             <Input
               id="cus-phone"
               value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              onChange={(e) => setPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
               placeholder="08XXXXXXXX"
+              inputMode="numeric"
+              maxLength={10}
               className="rounded-xl"
             />
           </div>
@@ -1057,6 +1159,307 @@ function CustomerForm({
             <Plus className="size-4" /> เพิ่มลูกค้า
           </Button>
         </SheetFooter>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ============================================================
+// SellSheet — ขายสินค้าให้ลูกค้าโดยตรงจากหน้า CRM
+// เลือกสินค้า + จำนวน + วิธีชำระ → สร้างคำสั่งขายผ่าน RPC atomic
+// ============================================================
+
+interface SellLine {
+  product: Product;
+  qty: number;
+}
+
+function SellSheet({
+  open,
+  onOpenChange,
+  customer,
+  products,
+  onSold,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  customer: Customer;
+  products: Product[];
+  onSold: () => void;
+}) {
+  const [lines, setLines] = useState<SellLine[]>([]);
+  const [productSearch, setProductSearch] = useState("");
+  const [payment, setPayment] = useState<string>("cash");
+  const [submitting, setSubmitting] = useState(false);
+
+  const paymentMethods = [
+    { key: "cash", label: "เงินสด" },
+    { key: "transfer", label: "โอนเงิน" },
+    { key: "card", label: "บัตรเครดิต" },
+    { key: "qr", label: "QR PromptPay" },
+    { key: "credit30", label: "เครดิต 30 วัน" },
+  ] as const;
+
+  const paymentKeyToLabel = (key: string): string =>
+    paymentMethods.find((m) => m.key === key)?.label ?? "เงินสด";
+
+  const filteredProducts = useMemo(() => {
+    if (!productSearch) return products.filter((p) => p.stock > 0).slice(0, 20);
+    const q = productSearch.toLowerCase();
+    return products
+      .filter(
+        (p) =>
+          p.stock > 0 &&
+          (p.name.includes(productSearch) ||
+            p.sku.toLowerCase().includes(q) ||
+            (p.barcode ?? "").includes(productSearch)),
+      )
+      .slice(0, 20);
+  }, [products, productSearch]);
+
+  const total = lines.reduce((s, l) => s + l.product.price * l.qty, 0);
+
+  const addLine = (p: Product) => {
+    setLines((prev) => {
+      const existing = prev.find((l) => l.product.id === p.id);
+      if (existing) {
+        return prev.map((l) =>
+          l.product.id === p.id ? { ...l, qty: Math.min(l.qty + 1, p.stock) } : l,
+        );
+      }
+      return [...prev, { product: p, qty: 1 }];
+    });
+    setProductSearch("");
+  };
+
+  const updateQty = (productId: string, qty: number) => {
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.product.id !== productId) return l;
+        return { ...l, qty: Math.max(1, Math.min(qty, l.product.stock)) };
+      }),
+    );
+  };
+
+  const removeLine = (productId: string) => {
+    setLines((prev) => prev.filter((l) => l.product.id !== productId));
+  };
+
+  const reset = () => {
+    setLines([]);
+    setProductSearch("");
+    setPayment("cash");
+  };
+
+  const submit = async () => {
+    if (lines.length === 0) {
+      toast.error("กรุณาเลือกสินค้าอย่างน้อย 1 รายการ");
+      return;
+    }
+    // เช็กสต็อก
+    for (const l of lines) {
+      if (l.qty > l.product.stock) {
+        toast.error(`สต็อก ${l.product.name} ไม่พอ (เหลือ ${l.product.stock})`);
+        return;
+      }
+    }
+
+    setSubmitting(true);
+    const orderId = `o-${Date.now()}`;
+    const orderCode = `CRM-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-5)}`;
+    const paymentLabel = paymentKeyToLabel(payment);
+
+    try {
+      const order = await ordersApi.createSaleTransaction({
+        id: orderId,
+        code: orderCode,
+        customerId: customer.id,
+        customerName: customer.name,
+        total,
+        status: "paid",
+        channel: "Sales Rep",
+        salesperson: "admin",
+        payment: paymentLabel as
+          "เงินสด" | "โอนเงิน" | "บัตรเครดิต" | "QR PromptPay" | "เครดิต 30 วัน",
+        items: lines.map((l) => ({
+          productId: l.product.id,
+          productName: l.product.name,
+          qty: l.qty,
+          price: l.product.price,
+          cost: l.product.cost,
+        })),
+      });
+
+      onSold();
+      toast.success(`ขายสินค้าให้ ${customer.name} สำเร็จ`, {
+        description: `${order.code} · ${currency(total)}`,
+      });
+      reset();
+      onOpenChange(false);
+    } catch (e) {
+      toast.error("บันทึกการขายไม่สำเร็จ", { description: (e as Error).message });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="flex w-full flex-col overflow-hidden sm:max-w-lg">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <ShoppingBag className="size-4 text-primary" /> ขายสินค้า
+          </SheetTitle>
+          <SheetDescription>
+            ลูกค้า: {customer.name} ({customer.code})
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="flex-1 space-y-4 overflow-y-auto py-4">
+          {/* ค้นหาและเลือกสินค้า */}
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">เพิ่มสินค้า</Label>
+            <Input
+              value={productSearch}
+              onChange={(e) => setProductSearch(e.target.value)}
+              placeholder="ค้นหาชื่อ / SKU / บาร์โค้ด..."
+              className="rounded-xl"
+            />
+            {filteredProducts.length > 0 && (
+              <div className="max-h-48 overflow-y-auto rounded-xl border">
+                {filteredProducts.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => addLine(p)}
+                    className="flex w-full items-center gap-2 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted/50"
+                  >
+                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted">
+                      {p.emoji}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{p.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {currency(p.price)} · เหลือ {p.stock} {p.unit}
+                      </p>
+                    </div>
+                    <Plus className="size-4 shrink-0 text-primary" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* รายการสินค้าในตะกร้า */}
+          {lines.length > 0 ? (
+            <div className="space-y-2">
+              <Label className="text-xs font-semibold">รายการสินค้า ({lines.length})</Label>
+              <div className="divide-y rounded-xl border">
+                {lines.map((l) => (
+                  <div key={l.product.id} className="flex items-center gap-2 p-3">
+                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-sm">
+                      {l.product.emoji}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{l.product.name}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {currency(l.product.price)} × {l.qty} = {currency(l.product.price * l.qty)}
+                      </p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="size-7 rounded-lg p-0"
+                        onClick={() => updateQty(l.product.id, l.qty - 1)}
+                      >
+                        −
+                      </Button>
+                      <Input
+                        type="number"
+                        value={l.qty}
+                        onChange={(e) => updateQty(l.product.id, Number(e.target.value))}
+                        className="h-7 w-14 rounded-lg text-center text-sm"
+                      />
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="size-7 rounded-lg p-0"
+                        onClick={() => updateQty(l.product.id, l.qty + 1)}
+                      >
+                        +
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="size-7 rounded-lg p-0 text-destructive"
+                        onClick={() => removeLine(l.product.id)}
+                      >
+                        <Trash2 className="size-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-xl border border-dashed py-8 text-center text-sm text-muted-foreground">
+              ยังไม่มีสินค้าในรายการ — ค้นหาและเลือกสินค้าด้านบน
+            </div>
+          )}
+
+          {/* วิธีชำระเงิน */}
+          <div className="space-y-2">
+            <Label className="text-xs font-semibold">วิธีชำระเงิน</Label>
+            <div className="grid grid-cols-3 gap-2">
+              {paymentMethods.map((m) => (
+                <button
+                  key={m.key}
+                  onClick={() => setPayment(m.key)}
+                  className={`rounded-xl border px-3 py-2 text-xs font-medium transition-colors ${
+                    payment === m.key
+                      ? "border-primary bg-primary/10 text-primary"
+                      : "hover:bg-muted/50"
+                  }`}
+                >
+                  {m.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        {/* สรุปยอด + ปุ่ม */}
+        <div className="border-t pt-4">
+          <div className="mb-3 flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">รวมทั้งสิ้น</span>
+            <span className="text-xl font-bold tabular-nums text-primary">{currency(total)}</span>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              className="flex-1 rounded-xl"
+              onClick={() => onOpenChange(false)}
+              disabled={submitting}
+            >
+              ยกเลิก
+            </Button>
+            <Button
+              className="flex-1 rounded-xl"
+              onClick={submit}
+              disabled={submitting || lines.length === 0}
+            >
+              {submitting ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" /> กำลังบันทึก...
+                </>
+              ) : (
+                <>
+                  <ShoppingBag className="size-4" /> บันทึกการขาย
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
       </SheetContent>
     </Sheet>
   );

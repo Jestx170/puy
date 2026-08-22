@@ -45,19 +45,12 @@ import {
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/common/EmptyState";
 import { printReceipt } from "@/lib/print";
-import {
-  categories,
-  currency,
-  customers as seedCustomers,
-  products as seedProducts,
-  type Customer,
-  type Product,
-} from "@/data/mock";
+import { productCategories as categories } from "@/lib/constants";
+import { currency } from "@/lib/format";
+import type { Customer, Product } from "@/types";
 import { productsApi } from "@/lib/api/products";
 import { customersApi } from "@/lib/api/customers";
 import { ordersApi, type OrderLineInput } from "@/lib/api/orders";
-import { movementsApi } from "@/lib/api/movements";
-import { activitiesApi } from "@/lib/api/activities";
 import { useAuth } from "@/lib/auth";
 
 export const Route = createFileRoute("/pos")({
@@ -100,16 +93,14 @@ function PosPage() {
   const salesperson = user ?? "admin";
   const qc = useQueryClient();
 
-  // ดึงสินค้า/ลูกค้าจาก Supabase (มี mock fallback)
-  const { data: productList = seedProducts } = useQuery({
+  // ดึงสินค้า/ลูกค้าจาก Supabase
+  const { data: productList = [] } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
-    placeholderData: seedProducts,
   });
-  const { data: customerList = seedCustomers } = useQuery({
+  const { data: customerList = [] } = useQuery({
     queryKey: ["customers"],
     queryFn: () => customersApi.list(),
-    placeholderData: seedCustomers,
   });
 
   const [query, setQuery] = useState("");
@@ -170,8 +161,7 @@ function PosPage() {
 
   const subtotal = cart.reduce((s, l) => s + l.product.price * l.qty, 0);
   const discountAmt = Math.round((subtotal * discount) / 100);
-  const vat = Math.round((subtotal - discountAmt) * 0.07);
-  const total = subtotal - discountAmt + vat;
+  const total = subtotal - discountAmt;
 
   const printCart = () => {
     if (cart.length === 0) {
@@ -197,13 +187,17 @@ function PosPage() {
       subtotal,
       discountPct: discount,
       discountAmt: discountAmt,
-      vat,
       total,
       payment: methodLabel,
     });
   };
 
-  // checkout จริง: บันทึก order + items + ลดสต็อก + stock movement + อัปเดตลูกค้า + activity
+  // checkout จริง: บันทึกทุกอย่างใน transaction เดียวผ่าน RPC create_sale_transaction
+  // - สร้าง order + order_items
+  // - ลด stock + สร้าง stock_movements (พร้อม audit trail)
+  // - อัปเดตยอดสะสมลูกค้า
+  // - บันทึก activity
+  // มี idempotency protection — ถ้าส่ง order_id ซ้ำจะคืน order เดิม (กัน double-submit)
   const checkout = async () => {
     if (cart.length === 0) {
       toast.error("ตะกร้าว่าง กรุณาเลือกสินค้า");
@@ -224,6 +218,7 @@ function PosPage() {
 
     setSubmitting(true);
     const methodLabel = paymentKeyToLabel(method);
+    const orderId = `o-${Date.now()}`;
     const orderCode = `POS-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-5)}`;
     const lines: OrderLineInput[] = cart.map((l) => ({
       productId: l.product.id,
@@ -234,63 +229,32 @@ function PosPage() {
     }));
 
     try {
-      // 1) สร้าง order + order_items
-      const order = await ordersApi.createWithItems(
-        {
-          code: orderCode,
-          customerId: cust.id,
-          customerName: cust.name,
-          total,
-          status: "paid",
-          channel: "POS",
-          salesperson,
-          payment: methodLabel as
-            "เงินสด" | "โอนเงิน" | "บัตรเครดิต" | "QR PromptPay" | "เครดิต 30 วัน",
-        },
-        lines,
-      );
-
-      // 2) ลดสต็อก + สร้าง stock_movement "จ่ายออก" ทุก line
-      await Promise.all(
-        cart.map(async (l) => {
-          await productsApi.adjustStock(l.product.id, -l.qty);
-          await movementsApi.create({
-            code: `OUT-${order.code}`,
-            type: "จ่ายออก",
-            productId: l.product.id,
-            productName: l.product.name,
-            qty: -l.qty,
-            warehouse: "คลังหลัก",
-            by: salesperson,
-            note: `ขาย POS ${order.code}`,
-          });
-        }),
-      );
-
-      // 3) อัปเดตยอดสะสม + จำนวนออเดอร์ + lastOrder ของลูกค้า
-      await customersApi.update(cust.id, {
-        lifetime: cust.lifetime + total,
-        orders: cust.orders + 1,
-        lastOrder: new Date().toISOString().slice(0, 10),
+      // เรียก RPC เดียว — ทุกอย่าง atomic (all or nothing)
+      const order = await ordersApi.createSaleTransaction({
+        id: orderId,
+        code: orderCode,
+        customerId: cust.id,
+        customerName: cust.name,
+        total,
+        status: "paid",
+        channel: "POS",
+        salesperson,
+        payment: methodLabel as
+          "เงินสด" | "โอนเงิน" | "บัตรเครดิต" | "QR PromptPay" | "เครดิต 30 วัน",
+        items: lines,
       });
 
-      // 4) log activity
-      await activitiesApi.create({
-        actor: salesperson,
-        action: `ขายหน้าร้าน ${order.code} มูลค่า ${currency(total)}`,
-        target: cust.name,
-        kind: "order",
-      });
-
-      // 5) invalidate queries ให้ข้อมูลสดทั่วแอป
+      // invalidate queries ให้ข้อมูลสดทั่วแอป
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["customers"] });
       qc.invalidateQueries({ queryKey: ["orders"] });
       qc.invalidateQueries({ queryKey: ["movements"] });
       qc.invalidateQueries({ queryKey: ["activities"] });
-      qc.invalidateQueries({ queryKey: ["dashboard"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      qc.invalidateQueries({ queryKey: ["low-stock-products"] });
+      qc.invalidateQueries({ queryKey: ["notifications"] });
 
-      // 6) พิมพ์ใบเสร็จ
+      // พิมพ์ใบเสร็จ
       printCart();
 
       toast.success(`รับชำระ ${currency(total)} สำเร็จ`, {
@@ -412,7 +376,6 @@ function PosPage() {
           method={method}
           subtotal={subtotal}
           discountAmt={discountAmt}
-          vat={vat}
           total={total}
           submitting={submitting}
           onClear={() => setCart([])}
@@ -443,7 +406,6 @@ function PosPage() {
               method={method}
               subtotal={subtotal}
               discountAmt={discountAmt}
-              vat={vat}
               total={total}
               submitting={submitting}
               onClear={() => setCart([])}
@@ -472,7 +434,6 @@ function CartPanel({
   method,
   subtotal,
   discountAmt,
-  vat,
   total,
   submitting,
   onClear,
@@ -488,7 +449,6 @@ function CartPanel({
   method: string;
   subtotal: number;
   discountAmt: number;
-  vat: number;
   total: number;
   submitting: boolean;
   onClear: () => void;
@@ -593,10 +553,6 @@ function CartPanel({
           <div className="flex justify-between">
             <span className="text-muted-foreground">ยอดรวม</span>
             <span className="tabular-nums">{currency(subtotal)}</span>
-          </div>
-          <div className="flex justify-between">
-            <span className="text-muted-foreground">ภาษีมูลค่าเพิ่ม 7%</span>
-            <span className="tabular-nums">{currency(vat)}</span>
           </div>
         </div>
 

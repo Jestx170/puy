@@ -1,5 +1,7 @@
+import { useMemo } from "react";
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
-import { ArrowLeft, Download, FileText, Printer } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowLeft, Download, Printer } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -7,13 +9,19 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { printReceipt } from "@/lib/print";
-import { currency, documents, orders, products, timeline } from "@/data/mock";
+import { currency } from "@/lib/format";
+import { ordersApi } from "@/lib/api/orders";
+import { productsApi } from "@/lib/api/products";
+import type { Product } from "@/types";
 
 export const Route = createFileRoute("/sales/$orderId")({
-  loader: ({ params }) => {
-    const order = orders.find((o) => o.id === params.orderId);
-    if (!order) throw notFound();
-    return { order };
+  loader: async ({ params }) => {
+    try {
+      const order = await ordersApi.get(params.orderId);
+      return { order };
+    } catch {
+      throw notFound();
+    }
   },
   head: ({ loaderData }) => {
     if (!loaderData) {
@@ -39,8 +47,25 @@ export const Route = createFileRoute("/sales/$orderId")({
 
 function OrderDetail() {
   const { order } = Route.useLoaderData();
-  const lines = products.slice(0, order.items).map((p, i) => ({ p, qty: 1 + i }));
-  const subtotal = lines.reduce((s, l) => s + l.p.price * l.qty, 0);
+
+  // ดึงรายการสินค้าในออเดอร์จาก Supabase
+  const { data: items = [] } = useQuery({
+    queryKey: ["order-items", order.id],
+    queryFn: () => ordersApi.getItems(order.id),
+  });
+
+  // ดึงสินค้าทั้งหมดเพื่อ map emoji/สำหรับแสดง
+  const { data: products = [] } = useQuery({
+    queryKey: ["products"],
+    queryFn: () => productsApi.list(),
+  });
+
+  const productMap = useMemo(
+    () => new Map<string, Product>(products.map((p) => [p.id, p])),
+    [products],
+  );
+
+  const subtotal = items.reduce((s, l) => s + l.price * l.qty, 0);
   const vat = Math.round(subtotal * 0.07);
 
   return (
@@ -70,11 +95,11 @@ function OrderDetail() {
                   customer: order.customer,
                   salesperson: order.salesperson,
                   channel: order.channel,
-                  lines: lines.map((l) => ({
-                    name: l.p.name,
+                  lines: items.map((l) => ({
+                    name: l.productName,
                     qty: l.qty,
-                    unit: l.p.unit,
-                    price: l.p.price,
+                    unit: productMap.get(l.productId)?.unit ?? "ชิ้น",
+                    price: l.price,
                   })),
                   subtotal,
                   vat,
@@ -105,22 +130,31 @@ function OrderDetail() {
               <StatusBadge status={order.status} />
             </header>
             <ul className="divide-y">
-              {lines.map((l) => (
-                <li key={l.p.id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-                    {l.p.emoji}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{l.p.name}</p>
-                    <p className="text-xs text-muted-foreground tabular-nums">
-                      {currency(l.p.price)} × {l.qty} {l.p.unit}
-                    </p>
-                  </div>
-                  <p className="shrink-0 text-sm font-semibold tabular-nums">
-                    {currency(l.p.price * l.qty)}
-                  </p>
+              {items.length === 0 ? (
+                <li className="px-4 py-8 text-center text-sm text-muted-foreground">
+                  ไม่มีรายการสินค้าในคำสั่งขายนี้
                 </li>
-              ))}
+              ) : (
+                items.map((l) => {
+                  const p = productMap.get(l.productId);
+                  return (
+                    <li key={l.id} className="flex items-center gap-3 px-4 py-3">
+                      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-lg">
+                        {p?.emoji ?? "📦"}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{l.productName}</p>
+                        <p className="text-xs text-muted-foreground tabular-nums">
+                          {currency(l.price)} × {l.qty} {p?.unit ?? "ชิ้น"}
+                        </p>
+                      </div>
+                      <p className="shrink-0 text-sm font-semibold tabular-nums">
+                        {currency(l.price * l.qty)}
+                      </p>
+                    </li>
+                  );
+                })
+              )}
             </ul>
             <div className="space-y-1.5 border-t px-4 py-3 text-sm">
               <div className="flex justify-between">
@@ -143,22 +177,9 @@ function OrderDetail() {
             <header className="border-b px-4 py-3">
               <h2 className="text-sm font-semibold">เอกสารที่เกี่ยวข้อง</h2>
             </header>
-            <ul className="divide-y">
-              {documents.map((d) => (
-                <li key={d.id} className="flex items-center gap-3 px-4 py-3">
-                  <FileText className="size-4 shrink-0 text-muted-foreground" />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{d.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {d.kind} · {d.size}
-                    </p>
-                  </div>
-                  <Button variant="ghost" size="sm" className="rounded-lg">
-                    <Download className="size-4" />
-                  </Button>
-                </li>
-              ))}
-            </ul>
+            <div className="px-4 py-8 text-center text-sm text-muted-foreground">
+              ยังไม่มีเอกสารแนบ — ฟีเจอร์นี้จะพร้อมเร็ว ๆ นี้
+            </div>
           </section>
         </div>
 
@@ -190,16 +211,22 @@ function OrderDetail() {
           <section className="card-soft p-4">
             <h2 className="text-sm font-semibold">ไทม์ไลน์</h2>
             <ol className="mt-3 space-y-4">
-              {timeline.map((t) => (
-                <li key={t.id} className="relative flex gap-3 pl-5">
-                  <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
+              <li className="relative flex gap-3 pl-5">
+                <span className="absolute left-0 top-1.5 size-2 rounded-full bg-primary" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium">สร้างคำสั่งขาย</p>
+                  <p className="text-xs text-muted-foreground">{order.date}</p>
+                </div>
+              </li>
+              {order.status === "paid" && (
+                <li className="relative flex gap-3 pl-5">
+                  <span className="absolute left-0 top-1.5 size-2 rounded-full bg-success" />
                   <div className="min-w-0">
-                    <p className="text-sm font-medium">{t.title}</p>
-                    <p className="text-xs text-muted-foreground">{t.desc}</p>
-                    <p className="text-[11px] text-muted-foreground/70">{t.time}</p>
+                    <p className="text-sm font-medium">ชำระเงินเรียบร้อย</p>
+                    <p className="text-xs text-muted-foreground">{order.payment}</p>
                   </div>
                 </li>
-              ))}
+              )}
             </ol>
           </section>
         </div>

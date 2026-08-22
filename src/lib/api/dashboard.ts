@@ -1,5 +1,5 @@
 import { supabase } from "@/lib/supabase";
-import type { Product } from "@/data/mock";
+import type { Product } from "@/types";
 import { productsApi } from "./products";
 
 export interface DashboardStats {

@@ -73,11 +73,11 @@ src/
 ├── lib/
 │   ├── api/                 # Supabase data layer (แยกตาม domain)
 │   │   ├── index.ts         # barrel export — import { productsApi } from "@/lib/api"
-│   │   ├── products.ts
+│   │   ├── products.ts      # CRUD + adjustStock (RPC) + safe delete (RPC)
 │   │   ├── warehouses.ts
-│   │   ├── movements.ts
+│   │   ├── movements.ts     # create via RPC record_stock_movement (atomic)
 │   │   ├── customers.ts     # + cultivationsApi
-│   │   ├── orders.ts
+│   │   ├── orders.ts        # + createSaleTransaction (RPC atomic) + getItems
 │   │   ├── activities.ts
 │   │   ├── notifications.ts
 │   │   └── dashboard.ts     # stats + charts + top products/customers
@@ -85,37 +85,37 @@ src/
 │   ├── auth.tsx             # auth context (localStorage, admin/admin123)
 │   ├── format.ts            # currency, compactCurrency, numberFmt
 │   ├── export.ts            # toCSV, downloadCSV, exportToCSV
+│   ├── constants.ts         # productCategories, productUnits (domain constants)
+│   ├── agronomy.ts          # cultivation cycle engine + sales recommendations
 │   └── utils.ts             # cn()
 │
 ├── types/
-│   └── index.ts             # domain types ทั้งหมด (Product, Customer, Order, ฯลฯ)
-│
-├── data/
-│   └── mock.ts              # mock data (seed/fallback) + re-export types & format
+│   └── index.ts             # domain types ทั้งหมด (Product, Customer, Order, OrderItem, ฯลฯ)
 │
 └── hooks/
     └── use-mobile.tsx
 
 supabase/
-└── schema.sql               # SQL schema ทั้งหมด (ตาราง + views + RLS + seed)
+├── schema.sql               # SQL schema ทั้งหมด (ตาราง + views + RLS + seed)
+└── migration-phase2.sql     # migration: image_url, audit trail, RPC functions, CHECK constraints
 ```
 
 ## แนวทางการเขียนโค้ด
 
 ### Types
 - domain types อยู่ใน `@/types` เท่านั้น — ไม่ประกาศ interface ซ้ำในไฟล์อื่น
-- `src/data/mock.ts` re-export types จาก `@/types` เพื่อ backward compat (import เดิมยังใช้ได้)
+- ไม่มี `src/data/mock.ts` อีกต่อไป — ลบออกแล้วใน Phase 2 (production-ready)
 
 ### Data fetching
 - ใช้ `useQuery` จาก `@tanstack/react-query` ดึงข้อมูลจาก Supabase
-- ใส่ `placeholderData` เป็น mock data เพื่อ fallback เมื่อ Supabase ล่ม/ยังไม่มีข้อมูล
+- **ไม่มี mock fallback อีกต่อไป** — ใช้ default value เป็น empty array `[]` หรือ `undefined`
 - data layer แปลง snake_case (DB) ↔ camelCase (TS) ให้เอง
+- การเขียน/แก้ข้อมูลที่สำคัญ (POS checkout, stock adjustment) ใช้ RPC function เพื่อ atomicity
 
 ```tsx
-const { data: list = seedProducts, isLoading } = useQuery({
+const { data: list = [], isLoading } = useQuery({
   queryKey: ["products"],
   queryFn: () => productsApi.list(),
-  placeholderData: seedProducts,
 });
 ```
 
@@ -136,8 +136,15 @@ const { data: list = seedProducts, isLoading } = useQuery({
 
 - ตั้งค่าใน `.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
 - รัน `supabase/schema.sql` ใน Supabase Dashboard → SQL Editor (ครั้งเดียว)
+- รัน `supabase/migration-phase2.sql` เพื่อเพิ่ม: `image_url`, `deleted_at`, audit trail
+  (`stock_before`/`stock_after`/`reference`), `CHECK stock >= 0`, RPC functions
+  (`create_sale_transaction`, `record_stock_movement`, `delete_product_safe`)
+- สร้าง storage bucket `product-images` (public, 5MB, image/* MIME types)
 - RLS อนุญาต anon ทุกตาราง (single-user app)
 - trigger `calc_product_status` คำนวณ `products.status` จาก stock/min_stock อัตโนมัติ
+- RPC `create_sale_transaction` — POS checkout แบบ atomic (order + items + stock + customer + activity)
+- RPC `record_stock_movement` — stock in/out/adjustment แบบ atomic + audit trail
+- RPC `delete_product_safe` — soft delete ถ้ามีประวัติขาย, hard delete ถ้าไม่มี
 
 ## หมายเหตุ
 
