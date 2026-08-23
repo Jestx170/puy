@@ -30,6 +30,7 @@ import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Toolbar, FilterSelect } from "@/components/common/DataToolbar";
 import { EmptyState } from "@/components/common/EmptyState";
+import { ProductImage } from "@/components/common/ProductImage";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
@@ -907,8 +908,12 @@ function CrmPage() {
                         <ul className="divide-y">
                           {items.map((it) => (
                             <li key={it.product.id} className="flex items-start gap-3 px-3 py-2.5">
-                              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-base">
-                                {it.product.emoji}
+                              <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                                <ProductImage
+                                  imageUrl={it.product.imageUrl}
+                                  name={it.product.name}
+                                  iconClassName="size-5"
+                                />
                               </span>
                               <div className="min-w-0 flex-1">
                                 <p className="truncate text-sm font-medium">{it.product.name}</p>
@@ -1333,8 +1338,8 @@ function SellSheet({
                     onClick={() => addLine(p)}
                     className="flex w-full items-center gap-2 border-b px-3 py-2 text-left text-sm last:border-0 hover:bg-muted/50"
                   >
-                    <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted">
-                      {p.emoji}
+                    <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                      <ProductImage imageUrl={p.imageUrl} name={p.name} iconClassName="size-4" />
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{p.name}</p>
@@ -1356,8 +1361,12 @@ function SellSheet({
               <div className="divide-y rounded-xl border">
                 {lines.map((l) => (
                   <div key={l.product.id} className="flex items-center gap-2 p-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted text-sm">
-                      {l.product.emoji}
+                    <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                      <ProductImage
+                        imageUrl={l.product.imageUrl}
+                        name={l.product.name}
+                        iconClassName="size-5"
+                      />
                     </span>
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{l.product.name}</p>

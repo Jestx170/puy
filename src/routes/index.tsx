@@ -36,6 +36,7 @@ import {
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatCard } from "@/components/common/StatCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { ProductImage } from "@/components/common/ProductImage";
 import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
@@ -600,8 +601,12 @@ function Dashboard() {
             <ul className="divide-y">
               {demand.slice(0, 6).map((d) => (
                 <li key={d.product.id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-base">
-                    {d.product.emoji}
+                  <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted">
+                    <ProductImage
+                      imageUrl={d.product.imageUrl}
+                      name={d.product.name}
+                      iconClassName="size-5"
+                    />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{d.product.name}</p>
@@ -631,8 +636,8 @@ function Dashboard() {
           <ul className="divide-y">
             {topProducts.map((p, i) => (
               <li key={p.id} className="flex items-center gap-3 px-4 py-3">
-                <span className="grid size-9 shrink-0 place-items-center rounded-xl bg-muted text-base">
-                  {p.emoji}
+                <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted">
+                  <ProductImage imageUrl={p.imageUrl} name={p.name} iconClassName="size-5" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-medium">{p.name}</p>

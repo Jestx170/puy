@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, List, Plus, Download, Package, Pencil, Loader2 } from "lucide-react";
@@ -45,6 +45,8 @@ import { currency } from "@/lib/format";
 import type { Product, ProductStatus } from "@/types";
 import { productsApi } from "@/lib/api/products";
 import { exportToCSV } from "@/lib/export";
+import { uploadProductImage } from "@/lib/storage";
+import { ProductImage } from "@/components/common/ProductImage";
 
 // ตัวกรองที่รับผ่าน URL — ทุก field เป็น optional เพื่อให้ <Link to="/products"> ไม่ต้องส่ง search
 interface ProductsSearch {
@@ -256,8 +258,8 @@ function ProductsPage() {
                     params={{ productId: p.id }}
                     className="group flex flex-col rounded-xl border bg-card p-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[var(--shadow-soft)]"
                   >
-                    <span className="mb-3 grid h-24 place-items-center rounded-lg bg-muted text-4xl">
-                      {p.emoji}
+                    <span className="mb-3 grid h-24 place-items-center overflow-hidden rounded-lg bg-muted">
+                      <ProductImage imageUrl={p.imageUrl} name={p.name} iconClassName="size-10" />
                     </span>
                     <div className="flex items-start justify-between gap-2">
                       <p className="line-clamp-2 min-w-0 text-sm font-semibold">{p.name}</p>
@@ -310,8 +312,12 @@ function ProductsPage() {
                         params={{ productId: p.id }}
                         className="flex items-center gap-2 hover:text-primary"
                       >
-                        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted">
-                          {p.emoji}
+                        <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                          <ProductImage
+                            imageUrl={p.imageUrl}
+                            name={p.name}
+                            iconClassName="size-4"
+                          />
                         </span>
                         <span className="truncate">{p.name}</span>
                       </Link>
@@ -360,8 +366,11 @@ function ProductForm({
   const [stock, setStock] = useState("0");
   const [minStock, setMinStock] = useState("10");
   const [unit, setUnit] = useState("ชิ้น");
-  const [emoji, setEmoji] = useState("📦");
   const [expiryDate, setExpiryDate] = useState("");
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = () => {
     setName("");
@@ -372,11 +381,33 @@ function ProductForm({
     setStock("0");
     setMinStock("10");
     setUnit("ชิ้น");
-    setEmoji("📦");
     setExpiryDate("");
+    setImageFile(null);
+    setImagePreview("");
   };
 
-  const submit = () => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("ไฟล์ใหญ่เกิน 5MB");
+      return;
+    }
+    if (!file.type.startsWith("image/")) {
+      toast.error("กรุณาเลือกไฟล์รูปภาพเท่านั้น");
+      return;
+    }
+    setImageFile(file);
+    setImagePreview(URL.createObjectURL(file));
+  };
+
+  const removeImage = () => {
+    setImageFile(null);
+    setImagePreview("");
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
+
+  const submit = async () => {
     if (!name.trim() || !price || !cost) {
       toast.error("กรุณากรอกชื่อ ราคา และต้นทุน");
       return;
@@ -387,8 +418,24 @@ function ProductForm({
     const minNum = Number(minStock) || 0;
     const status: ProductStatus = stockNum === 0 ? "out" : stockNum < minNum ? "low" : "active";
 
+    const productId = `p-${Date.now()}`;
+
+    // อัปโหลดรูปถ้ามี
+    let imageUrl: string | undefined;
+    if (imageFile) {
+      setUploading(true);
+      try {
+        imageUrl = await uploadProductImage(productId, imageFile);
+      } catch (e) {
+        toast.error("อัปโหลดรูปไม่สำเร็จ", { description: (e as Error).message });
+        setUploading(false);
+        return;
+      }
+      setUploading(false);
+    }
+
     const newProduct: Product = {
-      id: `p-${Date.now()}`,
+      id: productId,
       name: name.trim(),
       sku: `NEW-${String(Math.floor(Math.random() * 9999)).padStart(4, "0")}`,
       barcode: `885${String(Math.floor(Math.random() * 9999999)).padStart(7, "0")}`,
@@ -400,8 +447,8 @@ function ProductForm({
       minStock: minNum,
       unit,
       status,
-      emoji,
       expiryDate: expiryDate || undefined,
+      imageUrl,
     };
     onCreate(newProduct);
     reset();
@@ -424,28 +471,55 @@ function ProductForm({
         </SheetHeader>
 
         <div className="space-y-4 py-4">
-          <div className="grid grid-cols-[64px_1fr] gap-3">
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">ไอคอน</Label>
-              <Input
-                value={emoji}
-                onChange={(e) => setEmoji(e.target.value.slice(0, 2))}
-                className="h-9 rounded-xl text-center text-lg"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="prod-name" className="text-xs font-semibold">
-                ชื่อสินค้า *
-              </Label>
-              <Input
-                id="prod-name"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="เช่น ปุ๋ยยูเรีย 46-0-0"
-                autoFocus
-                className="rounded-xl"
-              />
-            </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="prod-name" className="text-xs font-semibold">
+              ชื่อสินค้า *
+            </Label>
+            <Input
+              id="prod-name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="เช่น ปุ๋ยยูเรีย 46-0-0"
+              autoFocus
+              className="rounded-xl"
+            />
+          </div>
+
+          {/* อัปโหลดรูปสินค้า */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold">
+              รูปสินค้า <span className="text-muted-foreground">(ไม่บังคับ)</span>
+            </Label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            {imagePreview ? (
+              <div className="relative inline-block">
+                <img
+                  src={imagePreview}
+                  alt="preview"
+                  className="h-24 w-24 rounded-xl border object-cover"
+                />
+                <button
+                  onClick={removeImage}
+                  className="absolute -right-2 -top-2 grid size-6 place-items-center rounded-full bg-destructive text-white shadow"
+                >
+                  ×
+                </button>
+              </div>
+            ) : (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="flex h-24 w-24 flex-col items-center justify-center gap-1 rounded-xl border border-dashed text-xs text-muted-foreground hover:border-primary hover:text-primary"
+              >
+                <Plus className="size-5" />
+                เพิ่มรูป
+              </button>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -576,8 +650,12 @@ function ProductForm({
           <div className="rounded-xl border bg-muted/40 p-3">
             <p className="text-[11px] font-semibold text-muted-foreground">พรีวิว</p>
             <div className="mt-2 flex items-center gap-3">
-              <span className="grid size-12 shrink-0 place-items-center rounded-lg bg-background text-2xl">
-                {emoji}
+              <span className="grid size-12 shrink-0 place-items-center overflow-hidden rounded-lg bg-background">
+                {imagePreview ? (
+                  <img src={imagePreview} alt="preview" className="h-full w-full object-cover" />
+                ) : (
+                  <Package className="size-6 text-muted-foreground" />
+                )}
               </span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{name || "ชื่อสินค้า"}</p>
@@ -593,11 +671,22 @@ function ProductForm({
         </div>
 
         <SheetFooter>
-          <Button variant="outline" className="rounded-xl" onClick={() => onOpenChange(false)}>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() => onOpenChange(false)}
+            disabled={uploading}
+          >
             ยกเลิก
           </Button>
-          <Button className="rounded-xl" onClick={submit}>
-            <Plus className="size-4" /> เพิ่มสินค้า
+          <Button className="rounded-xl" onClick={submit} disabled={uploading}>
+            {uploading ? (
+              <>กำลังอัปโหลดรูป...</>
+            ) : (
+              <>
+                <Plus className="size-4" /> เพิ่มสินค้า
+              </>
+            )}
           </Button>
         </SheetFooter>
       </SheetContent>

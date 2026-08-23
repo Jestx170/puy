@@ -6,6 +6,7 @@ import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { ProductImage } from "@/components/common/ProductImage";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { printReceipt } from "@/lib/print";
@@ -54,7 +55,7 @@ function OrderDetail() {
     queryFn: () => ordersApi.getItems(order.id),
   });
 
-  // ดึงสินค้าทั้งหมดเพื่อ map emoji/สำหรับแสดง
+  // ดึงสินค้าทั้งหมดเพื่อ map รูปภาพ/สำหรับแสดง
   const { data: products = [] } = useQuery({
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
@@ -139,8 +140,12 @@ function OrderDetail() {
                   const p = productMap.get(l.productId);
                   return (
                     <li key={l.id} className="flex items-center gap-3 px-4 py-3">
-                      <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-                        {p?.emoji ?? "📦"}
+                      <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                        <ProductImage
+                          imageUrl={p?.imageUrl}
+                          name={l.productName}
+                          iconClassName="size-5"
+                        />
                       </span>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium">{l.productName}</p>

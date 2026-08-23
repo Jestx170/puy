@@ -22,8 +22,7 @@ export interface Product {
   minStock: number;
   unit: string;
   status: ProductStatus;
-  emoji: string;
-  /** URL ของรูปภาพสินค้าใน Supabase Storage (ถ้าไม่มีใช้ emoji แทน) */
+  /** URL ของรูปภาพสินค้าใน Supabase Storage (ถ้าไม่มีแสดง icon Package) */
   imageUrl?: string | undefined;
   /** วันหมดอายุสินค้า (ถ้ามี) เช่น "2026-12-31" */
   expiryDate?: string | undefined;

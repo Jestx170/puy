@@ -10,7 +10,6 @@ import {
   UserRound,
   Banknote,
   QrCode,
-  CreditCard,
   Building2,
   Printer,
   Percent,
@@ -44,6 +43,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { EmptyState } from "@/components/common/EmptyState";
+import { ProductImage } from "@/components/common/ProductImage";
 import { printReceipt } from "@/lib/print";
 import { productCategories as categories } from "@/lib/constants";
 import { currency } from "@/lib/format";
@@ -80,7 +80,6 @@ interface CartLine {
 const paymentMethods = [
   { key: "cash", label: "เงินสด", icon: Banknote },
   { key: "qr", label: "QR PromptPay", icon: QrCode },
-  { key: "card", label: "บัตรเครดิต", icon: CreditCard },
   { key: "transfer", label: "โอนเงิน", icon: Building2 },
 ] as const;
 
@@ -239,8 +238,7 @@ function PosPage() {
         status: "paid",
         channel: "POS",
         salesperson,
-        payment: methodLabel as
-          "เงินสด" | "โอนเงิน" | "บัตรเครดิต" | "QR PromptPay" | "เครดิต 30 วัน",
+        payment: methodLabel as "เงินสด" | "โอนเงิน" | "QR PromptPay" | "เครดิต 30 วัน",
         items: lines,
       });
 
@@ -353,8 +351,8 @@ function PosPage() {
                   disabled={p.stock === 0}
                   className="group flex flex-col rounded-xl border bg-card p-3 text-left transition-all duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-[var(--shadow-soft)] disabled:opacity-40"
                 >
-                  <span className="mb-2 grid h-14 place-items-center rounded-lg bg-muted text-2xl">
-                    {p.emoji}
+                  <span className="mb-2 grid h-14 place-items-center overflow-hidden rounded-lg bg-muted">
+                    <ProductImage imageUrl={p.imageUrl} name={p.name} iconClassName="size-7" />
                   </span>
                   <p className="line-clamp-2 min-h-9 text-xs font-medium">{p.name}</p>
                   <p className="mt-1 text-[11px] text-muted-foreground">คงเหลือ {p.stock}</p>
@@ -495,8 +493,12 @@ function CartPanel({
           <ul className="divide-y">
             {cart.map((l) => (
               <li key={l.product.id} className="flex items-center gap-2 px-3 py-2.5">
-                <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted">
-                  {l.product.emoji}
+                <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                  <ProductImage
+                    imageUrl={l.product.imageUrl}
+                    name={l.product.name}
+                    iconClassName="size-4"
+                  />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-xs font-medium">{l.product.name}</p>

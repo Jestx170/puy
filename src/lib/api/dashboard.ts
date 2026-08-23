@@ -151,7 +151,7 @@ export const dashboardApi = {
       minStock: r.min_stock,
       unit: r.unit,
       status: r.status as Product["status"],
-      emoji: r.emoji,
+      imageUrl: r.image_url ?? undefined,
       sold: r.sold,
       revenue: Number(r.revenue),
     }));
@@ -233,7 +233,7 @@ interface DbTopProduct {
   min_stock: number;
   unit: string;
   status: string;
-  emoji: string;
+  image_url: string | null;
   sold: number;
   revenue: number;
 }

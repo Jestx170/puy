@@ -23,7 +23,7 @@ select
   brand,
   stock,
   unit,
-  emoji,
+  image_url,
   expiry_date,
   case
     when expiry_date < current_date then 'expired'

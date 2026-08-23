@@ -16,7 +16,6 @@ function rowToProduct(r: DbProduct): Product {
     minStock: r.min_stock,
     unit: r.unit,
     status: r.status as ProductStatus,
-    emoji: r.emoji,
     imageUrl: r.image_url ?? undefined,
     expiryDate: r.expiry_date ?? undefined,
     deletedAt: r.deleted_at ?? undefined,
@@ -37,8 +36,7 @@ function productToRow(p: Partial<Product>): Partial<DbProduct> {
   if (p.stock !== undefined) row.stock = p.stock;
   if (p.minStock !== undefined) row.min_stock = p.minStock;
   if (p.unit !== undefined) row.unit = p.unit;
-  if (p.emoji !== undefined) row.emoji = p.emoji;
-  if (p.imageUrl !== undefined) row.image_url = p.imageUrl;
+  if (p.imageUrl !== undefined) row.image_url = p.imageUrl || null;
   if (p.expiryDate !== undefined) row.expiry_date = p.expiryDate || null;
   // status คำนวณอัตโนมัติใน DB trigger ไม่ต้องส่ง
   return row;
@@ -144,7 +142,7 @@ export const productsApi = {
       brand: r.brand,
       stock: r.stock,
       unit: r.unit,
-      emoji: r.emoji,
+      imageUrl: r.image_url ?? undefined,
       expiryDate: r.expiry_date,
       expiryStatus: r.expiry_status as "expired" | "critical" | "warning",
       daysUntilExpiry: Number(r.days_until_expiry),
@@ -166,7 +164,6 @@ interface DbProduct {
   min_stock: number;
   unit: string;
   status: string;
-  emoji: string;
   image_url: string | null;
   expiry_date: string | null;
   deleted_at: string | null;
@@ -184,7 +181,7 @@ export interface ExpiringProduct {
   brand: string;
   stock: number;
   unit: string;
-  emoji: string;
+  imageUrl?: string | undefined;
   expiryDate: string;
   expiryStatus: "expired" | "critical" | "warning";
   daysUntilExpiry: number;
@@ -199,7 +196,7 @@ interface DbExpiringProduct {
   brand: string;
   stock: number;
   unit: string;
-  emoji: string;
+  image_url: string | null;
   expiry_date: string;
   expiry_status: string;
   days_until_expiry: number;

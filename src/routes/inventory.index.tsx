@@ -29,6 +29,7 @@ import { StatCard } from "@/components/common/StatCard";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Toolbar, FilterSelect } from "@/components/common/DataToolbar";
 import { EmptyState } from "@/components/common/EmptyState";
+import { ProductImage } from "@/components/common/ProductImage";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -299,8 +300,12 @@ function InventoryOverview() {
                     <TableRow key={p.id}>
                       <TableCell>
                         <div className="flex items-center gap-2">
-                          <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-sm">
-                            {p.emoji}
+                          <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                            <ProductImage
+                              imageUrl={p.imageUrl}
+                              name={p.name}
+                              iconClassName="size-4"
+                            />
                           </span>
                           <span className="truncate text-sm font-medium">{p.name}</span>
                         </div>
@@ -466,8 +471,8 @@ function InventoryOverview() {
           <ul className="divide-y">
             {lowStockProducts.map((p) => (
               <li key={p.id} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-muted">
-                  {p.emoji}
+                <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                  <ProductImage imageUrl={p.imageUrl} name={p.name} iconClassName="size-5" />
                 </span>
                 <div className="min-w-0 flex-1">
                   <Link
@@ -568,8 +573,12 @@ function InventoryOverview() {
                   <TableRow key={p.id}>
                     <TableCell>
                       <div className="flex items-center gap-2">
-                        <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-muted text-sm">
-                          {p.emoji}
+                        <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                          <ProductImage
+                            imageUrl={p.imageUrl}
+                            name={p.name}
+                            iconClassName="size-4"
+                          />
                         </span>
                         <span className="truncate text-sm font-medium">{p.name}</span>
                       </div>

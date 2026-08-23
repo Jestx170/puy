@@ -1,11 +1,21 @@
 import { useState } from "react";
 import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Pencil, Plus, Printer, Trash2, ArrowLeft, Loader2, CalendarClock } from "lucide-react";
+import {
+  Pencil,
+  Plus,
+  Printer,
+  Trash2,
+  ArrowLeft,
+  Loader2,
+  CalendarClock,
+  Package,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { ProductImage } from "@/components/common/ProductImage";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Input } from "@/components/ui/input";
@@ -174,7 +184,9 @@ function ProductDetail() {
 
       <div className="grid gap-4 lg:grid-cols-[320px_minmax(0,1fr)]">
         <div className="card-soft p-4">
-          <div className="grid h-52 place-items-center rounded-xl bg-muted text-7xl">{p.emoji}</div>
+          <div className="grid h-52 place-items-center overflow-hidden rounded-xl bg-muted">
+            <ProductImage imageUrl={p.imageUrl} name={p.name} iconClassName="size-20" />
+          </div>
           <div className="mt-4 flex items-center justify-between">
             <StatusBadge status={p.status} />
             <span className="text-xs text-muted-foreground">{p.barcode}</span>
@@ -308,8 +320,8 @@ function ProductDetail() {
                     params={{ productId: x.id }}
                     className="flex items-center gap-3 rounded-xl border p-3 transition-colors hover:border-primary/40 hover:bg-muted/40"
                   >
-                    <span className="grid size-10 shrink-0 place-items-center rounded-lg bg-muted text-lg">
-                      {x.emoji}
+                    <span className="grid size-10 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
+                      <ProductImage imageUrl={x.imageUrl} name={x.name} iconClassName="size-5" />
                     </span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">{x.name}</p>
@@ -362,7 +374,6 @@ function EditProductSheet({
   const [stock, setStock] = useState(String(product.stock));
   const [minStock, setMinStock] = useState(String(product.minStock));
   const [unit, setUnit] = useState(product.unit);
-  const [emoji, setEmoji] = useState(product.emoji);
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
@@ -383,7 +394,6 @@ function EditProductSheet({
         stock: Number(stock) || 0,
         minStock: Number(minStock) || 0,
         unit: unit.trim(),
-        emoji: emoji.trim() || "📦",
       });
       onSaved(updated);
       toast.success(`แก้ไข "${updated.name}" แล้ว`);
@@ -496,15 +506,6 @@ function EditProductSheet({
                 value={minStock}
                 onChange={(e) => setMinStock(e.target.value)}
                 className="rounded-xl"
-              />
-            </div>
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">อิโมจิ</Label>
-              <Input
-                value={emoji}
-                onChange={(e) => setEmoji(e.target.value)}
-                className="rounded-xl"
-                maxLength={2}
               />
             </div>
           </div>
