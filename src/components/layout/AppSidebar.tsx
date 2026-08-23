@@ -7,7 +7,6 @@ import {
   Warehouse,
   TrendingUp,
   Gift,
-  Sprout,
   ArrowDownToLine,
   ArrowUpFromLine,
   SlidersHorizontal,
@@ -62,9 +61,11 @@ export function AppSidebar() {
     <Sidebar collapsible="icon" className="border-r">
       <SidebarHeader className="border-b px-3 py-3.5">
         <div className="flex min-w-0 items-center gap-2.5">
-          <div className="grid size-9 shrink-0 place-items-center rounded-xl bg-primary text-primary-foreground">
-            <Sprout className="size-5" />
-          </div>
+          <img
+            src="/Logo.png"
+            alt="ปุ๋ยไทย CRM"
+            className="size-20 shrink-0 rounded-xl object-cover"
+          />
           {!collapsed && (
             <div className="min-w-0">
               <p className="truncate text-sm font-bold leading-tight">ปุ๋ยไทย CRM</p>

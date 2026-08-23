@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -23,6 +23,7 @@ import {
   AlertTriangle,
   TrendingUp,
   Clock,
+  Pencil,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -39,7 +40,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { currency } from "@/lib/format";
 import { cultivationStages, stageTone } from "@/types";
-import type { CultivationStage, Customer, MemberTier, Product } from "@/types";
+import type { Cultivation, CultivationStage, Customer, MemberTier, Product } from "@/types";
 import {
   recommendForCustomer,
   recommendForCultivation,
@@ -119,6 +120,8 @@ function CrmPage() {
   const [addOpen, setAddOpen] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Customer | null>(null);
   const [sellOpen, setSellOpen] = useState(false);
+  const [cultFormOpen, setCultFormOpen] = useState(false);
+  const [cultEditTarget, setCultEditTarget] = useState<Cultivation | null>(null);
   const qc = useQueryClient();
 
   // ดึงลูกค้าจาก Supabase
@@ -541,7 +544,10 @@ function CrmPage() {
                     <Button
                       size="sm"
                       className="rounded-xl"
-                      onClick={() => toast("เปิดฟอร์มเพิ่มแปลง")}
+                      onClick={() => {
+                        setCultEditTarget(null);
+                        setCultFormOpen(true);
+                      }}
                     >
                       <Plus className="size-4" /> เพิ่มแปลงเพาะปลูก
                     </Button>
@@ -606,14 +612,40 @@ function CrmPage() {
                                 <p className="mt-1 text-xs text-muted-foreground">{cul.note}</p>
                               )}
                             </div>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="rounded-xl"
-                              onClick={() => toast(`อัปเดตช่วงการปลูก: ${cul.crop}`)}
-                            >
-                              อัปเดตช่วง
-                            </Button>
+                            <div className="flex shrink-0 gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                className="rounded-xl"
+                                onClick={() => {
+                                  setCultEditTarget(cul);
+                                  setCultFormOpen(true);
+                                }}
+                              >
+                                <Pencil className="size-3.5" /> แก้ไข
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="rounded-xl text-destructive"
+                                onClick={async () => {
+                                  try {
+                                    await cultivationsApi.remove(cul.id);
+                                    qc.invalidateQueries({
+                                      queryKey: ["cultivations", effectiveSelected],
+                                    });
+                                    qc.invalidateQueries({ queryKey: ["customers"] });
+                                    toast.success(`ลบแปลง ${cul.crop} แล้ว`);
+                                  } catch (e) {
+                                    toast.error("ลบแปลงไม่สำเร็จ", {
+                                      description: (e as Error).message,
+                                    });
+                                  }
+                                }}
+                              >
+                                <Trash2 className="size-3.5" />
+                              </Button>
+                            </div>
                           </div>
 
                           <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
@@ -698,7 +730,10 @@ function CrmPage() {
                     variant="outline"
                     size="sm"
                     className="rounded-xl"
-                    onClick={() => toast("เปิดฟอร์มเพิ่มแปลงเพาะปลูก")}
+                    onClick={() => {
+                      setCultEditTarget(null);
+                      setCultFormOpen(true);
+                    }}
                   >
                     <Plus className="size-4" /> เพิ่มแปลงเพาะปลูก
                   </Button>
@@ -962,6 +997,17 @@ function CrmPage() {
           qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
           qc.invalidateQueries({ queryKey: ["low-stock-products"] });
           qc.invalidateQueries({ queryKey: ["notifications"] });
+        }}
+      />
+
+      <CultivationForm
+        open={cultFormOpen}
+        onOpenChange={setCultFormOpen}
+        customerId={customer.id}
+        editTarget={cultEditTarget}
+        onSaved={() => {
+          qc.invalidateQueries({ queryKey: ["cultivations", effectiveSelected] });
+          qc.invalidateQueries({ queryKey: ["customers"] });
         }}
       />
 
@@ -1469,6 +1515,263 @@ function SellSheet({
             </Button>
           </div>
         </div>
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+// ============================================================
+// CultivationForm — เพิ่ม/แก้ไขแปลงเพาะปลูก
+// ============================================================
+
+const commonCrops = [
+  "ข้าว",
+  "ข้าวโพด",
+  "อ้อย",
+  "มันสำปะหลัง",
+  "ยางพารา",
+  "ปาล์มน้ำมัน",
+  "ส้ม",
+  "มะม่วง",
+  "ทุเรียน",
+  "ลำไย",
+  "ลิ้นจี่",
+  "พริก",
+  "กระเทียม",
+  "หอมหัวใหญ่",
+  "ผักกาด",
+  "คะน้า",
+  "บวบ",
+  "แตงกวา",
+  "แตงโม",
+  "ฟักทอง",
+];
+
+function CultivationForm({
+  open,
+  onOpenChange,
+  customerId,
+  editTarget,
+  onSaved,
+}: {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  customerId: string;
+  editTarget: Cultivation | null;
+  onSaved: () => void;
+}) {
+  const isEdit = !!editTarget;
+  const [crop, setCrop] = useState("");
+  const [stage, setStage] = useState<CultivationStage>("เตรียมดิน");
+  const [area, setArea] = useState("1");
+  const [location, setLocation] = useState("");
+  const [plantedDate, setPlantedDate] = useState("");
+  const [expectedHarvest, setExpectedHarvest] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  // โหลดค่าจาก editTarget เมื่อเปิดฟอร์ม
+  useEffect(() => {
+    if (open) {
+      if (editTarget) {
+        setCrop(editTarget.crop);
+        setStage(editTarget.stage);
+        setArea(String(editTarget.area));
+        setLocation(editTarget.location);
+        setPlantedDate(editTarget.plantedDate);
+        setExpectedHarvest(editTarget.expectedHarvest);
+        setNote(editTarget.note ?? "");
+      } else {
+        setCrop("");
+        setStage("เตรียมดิน");
+        setArea("1");
+        setLocation("");
+        setPlantedDate(new Date().toISOString().slice(0, 10));
+        setExpectedHarvest("");
+        setNote("");
+      }
+    }
+  }, [open, editTarget]);
+
+  const submit = async () => {
+    if (!crop.trim()) {
+      toast.error("กรุณากรอกชื่อพืช");
+      return;
+    }
+    if (!location.trim()) {
+      toast.error("กรุณากรอกที่ตั้งแปลง");
+      return;
+    }
+    const areaNum = Number(area) || 0;
+    if (areaNum <= 0) {
+      toast.error("พื้นที่ต้องมากกว่า 0");
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (isEdit && editTarget) {
+        await cultivationsApi.update(editTarget.id, {
+          crop: crop.trim(),
+          stage,
+          area: areaNum,
+          location: location.trim(),
+          plantedDate,
+          expectedHarvest,
+          note: note.trim() || undefined,
+        });
+        toast.success(`แก้ไขแปลง ${crop.trim()} แล้ว`);
+      } else {
+        await cultivationsApi.create({
+          id: `cul-${Date.now()}`,
+          customerId,
+          crop: crop.trim(),
+          stage,
+          area: areaNum,
+          location: location.trim(),
+          plantedDate,
+          expectedHarvest,
+          note: note.trim() || undefined,
+        });
+        toast.success(`เพิ่มแปลง ${crop.trim()} แล้ว`);
+      }
+      onSaved();
+      onOpenChange(false);
+    } catch (e) {
+      toast.error("บันทึกแปลงไม่สำเร็จ", { description: (e as Error).message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Sheet open={open} onOpenChange={onOpenChange}>
+      <SheetContent className="w-full overflow-y-auto sm:max-w-md">
+        <SheetHeader>
+          <SheetTitle className="flex items-center gap-2">
+            <Sprout className="size-4 text-primary" />
+            {isEdit ? "แก้ไขแปลงเพาะปลูก" : "เพิ่มแปลงเพาะปลูก"}
+          </SheetTitle>
+          <SheetDescription>
+            {isEdit ? "แก้ไขข้อมูลแปลงและช่วงการปลูก" : "กรอกข้อมูลแปลงเพาะปลูกใหม่"}
+          </SheetDescription>
+        </SheetHeader>
+
+        <div className="space-y-4 py-4">
+          {/* พืช + ช่วงการปลูก */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">พืช *</Label>
+              <Input
+                value={crop}
+                onChange={(e) => setCrop(e.target.value)}
+                placeholder="เช่น ข้าว ข้าวโพด อ้อย"
+                list="crop-list"
+                className="rounded-xl"
+              />
+              <datalist id="crop-list">
+                {commonCrops.map((c) => (
+                  <option key={c} value={c} />
+                ))}
+              </datalist>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">ช่วงการปลูก</Label>
+              <Select value={stage} onValueChange={(v) => setStage(v as CultivationStage)}>
+                <SelectTrigger className="rounded-xl">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {cultivationStages.map((s) => (
+                    <SelectItem key={s} value={s}>
+                      {s}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {/* พื้นที่ + ที่ตั้ง */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">พื้นที่ (ไร่) *</Label>
+              <Input
+                type="number"
+                value={area}
+                onChange={(e) => setArea(e.target.value)}
+                min="0"
+                step="0.5"
+                className="rounded-xl"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">ที่ตั้ง *</Label>
+              <Input
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                placeholder="เช่น ต.หนองโสน อ.เมือง"
+                className="rounded-xl"
+              />
+            </div>
+          </div>
+
+          {/* วันปลูก + วันเก็บเกี่ยว */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">วันปลูก</Label>
+              <Input
+                type="date"
+                value={plantedDate}
+                onChange={(e) => setPlantedDate(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs font-semibold">วันเก็บเกี่ยว (คาดการณ์)</Label>
+              <Input
+                type="date"
+                value={expectedHarvest}
+                onChange={(e) => setExpectedHarvest(e.target.value)}
+                className="rounded-xl"
+              />
+            </div>
+          </div>
+
+          {/* หมายเหตุ */}
+          <div className="space-y-1.5">
+            <Label className="text-xs font-semibold">หมายเหตุ</Label>
+            <Textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="เช่น ดินเค็ม ใช้ปุ๋ยอินทรีย์ มีโรคราสีชมพู..."
+              className="rounded-xl"
+              rows={3}
+            />
+          </div>
+        </div>
+
+        <SheetFooter>
+          <Button
+            variant="outline"
+            className="rounded-xl"
+            onClick={() => onOpenChange(false)}
+            disabled={saving}
+          >
+            ยกเลิก
+          </Button>
+          <Button className="rounded-xl" onClick={submit} disabled={saving}>
+            {saving ? (
+              <>
+                <Loader2 className="size-4 animate-spin" /> กำลังบันทึก...
+              </>
+            ) : (
+              <>
+                <Plus className="size-4" /> {isEdit ? "บันทึกการแก้ไข" : "เพิ่มแปลง"}
+              </>
+            )}
+          </Button>
+        </SheetFooter>
       </SheetContent>
     </Sheet>
   );

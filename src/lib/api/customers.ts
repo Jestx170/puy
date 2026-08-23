@@ -133,6 +133,26 @@ export const cultivationsApi = {
     return rowToCultivation(data as DbCultivation);
   },
 
+  async update(id: string, patch: Partial<Cultivation>): Promise<Cultivation> {
+    const row: Record<string, unknown> = {};
+    if (patch.crop !== undefined) row["crop"] = patch.crop;
+    if (patch.stage !== undefined) row["stage"] = patch.stage;
+    if (patch.area !== undefined) row["area"] = patch.area;
+    if (patch.plantedDate !== undefined) row["planted_date"] = patch.plantedDate || null;
+    if (patch.expectedHarvest !== undefined)
+      row["expected_harvest"] = patch.expectedHarvest || null;
+    if (patch.location !== undefined) row["location"] = patch.location;
+    if (patch.note !== undefined) row["note"] = patch.note ?? null;
+    const { data, error } = await supabase
+      .from("cultivations")
+      .update(row)
+      .eq("id", id)
+      .select()
+      .single();
+    if (error) throw error;
+    return rowToCultivation(data as DbCultivation);
+  },
+
   async remove(id: string): Promise<void> {
     const { error } = await supabase.from("cultivations").delete().eq("id", id);
     if (error) throw error;

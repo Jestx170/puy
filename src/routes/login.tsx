@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Sprout, Lock, UserRound, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { Lock, UserRound, Eye, EyeOff, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 import { useAuth } from "@/lib/auth";
@@ -56,9 +56,7 @@ function LoginPage() {
         </div>
 
         <div className="relative flex items-center gap-3">
-          <div className="grid size-11 place-items-center rounded-2xl bg-primary-foreground/15 backdrop-blur">
-            <Sprout className="size-6" />
-          </div>
+          <img src="/Logo.png" alt="ปุ๋ยไทย CRM" className="size-11 rounded-2xl object-cover" />
           <div>
             <p className="text-lg font-bold leading-tight">ปุ๋ยไทย CRM</p>
             <p className="text-xs text-primary-foreground/70">Agri ERP Platform</p>
@@ -101,9 +99,7 @@ function LoginPage() {
         <div className="w-full max-w-sm">
           {/* โลโก้บนมือถือ */}
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <div className="grid size-10 place-items-center rounded-xl bg-primary text-primary-foreground">
-              <Sprout className="size-5" />
-            </div>
+            <img src="/Logo.png" alt="ปุ๋ยไทย CRM" className="size-10 rounded-xl object-cover" />
             <div>
               <p className="text-sm font-bold leading-tight">ปุ๋ยไทย CRM</p>
               <p className="text-[11px] text-muted-foreground">Agri ERP Platform</p>
