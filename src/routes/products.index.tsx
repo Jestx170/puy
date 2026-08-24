@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, List, Plus, Download, Package, Pencil, Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -81,6 +81,7 @@ export const Route = createFileRoute("/products/")({
 });
 
 function ProductsPage() {
+  const navigate = useNavigate();
   // ค่าเริ่มต้นของตัวกรองมาจาก URL (ถ้ามี) — ผู้ใช้ปรับต่อได้ตามปกติ
   const search = Route.useSearch();
   const [query, setQuery] = useState(search.q ?? "");
@@ -279,10 +280,14 @@ function ProductsPage() {
                   </Link>
                 </ContextMenuTrigger>
                 <ContextMenuContent className="rounded-xl">
-                  <ContextMenuItem onSelect={() => toast("แก้ไขด่วน: " + p.name)}>
+                  <ContextMenuItem
+                    onSelect={() =>
+                      navigate({ to: "/products/$productId", params: { productId: p.id } })
+                    }
+                  >
                     <Pencil className="size-4" /> แก้ไขด่วน
                   </ContextMenuItem>
-                  <ContextMenuItem onSelect={() => toast.success("เพิ่มเข้ารายการสั่งซื้อแล้ว")}>
+                  <ContextMenuItem onSelect={() => navigate({ to: "/inventory/stock-in" })}>
                     <Plus className="size-4" /> สั่งซื้อเพิ่ม
                   </ContextMenuItem>
                 </ContextMenuContent>
@@ -305,13 +310,23 @@ function ProductsPage() {
               </TableHeader>
               <TableBody>
                 {slice.map((p) => (
-                  <TableRow key={p.id} className="cursor-pointer">
+                  <TableRow
+                    key={p.id}
+                    role="link"
+                    tabIndex={0}
+                    className="cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    onClick={() =>
+                      navigate({ to: "/products/$productId", params: { productId: p.id } })
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        navigate({ to: "/products/$productId", params: { productId: p.id } });
+                      }
+                    }}
+                  >
                     <TableCell className="font-medium">
-                      <Link
-                        to="/products/$productId"
-                        params={{ productId: p.id }}
-                        className="flex items-center gap-2 hover:text-primary"
-                      >
+                      <div className="flex items-center gap-2">
                         <span className="grid size-8 shrink-0 place-items-center overflow-hidden rounded-lg bg-muted">
                           <ProductImage
                             imageUrl={p.imageUrl}
@@ -320,7 +335,7 @@ function ProductsPage() {
                           />
                         </span>
                         <span className="truncate">{p.name}</span>
-                      </Link>
+                      </div>
                     </TableCell>
                     <TableCell className="text-xs text-muted-foreground">{p.sku}</TableCell>
                     <TableCell className="text-xs">{p.category}</TableCell>
@@ -358,7 +373,12 @@ function ProductForm({
   onOpenChange: (v: boolean) => void;
   onCreate: (p: Product) => void;
 }) {
+  const newSku = () => `NEW-${String(Math.floor(Math.random() * 9999)).padStart(4, "0")}`;
+  const newBarcode = () => `885${String(Math.floor(Math.random() * 9999999)).padStart(7, "0")}`;
+
   const [name, setName] = useState("");
+  const [sku, setSku] = useState(newSku);
+  const [barcode, setBarcode] = useState(newBarcode);
   const [category, setCategory] = useState<string>(categories[0]!);
   const [brand, setBrand] = useState("");
   const [price, setPrice] = useState("");
@@ -374,6 +394,8 @@ function ProductForm({
 
   const reset = () => {
     setName("");
+    setSku(newSku());
+    setBarcode(newBarcode());
     setCategory(categories[0]!);
     setBrand("");
     setPrice("");
@@ -437,8 +459,8 @@ function ProductForm({
     const newProduct: Product = {
       id: productId,
       name: name.trim(),
-      sku: `NEW-${String(Math.floor(Math.random() * 9999)).padStart(4, "0")}`,
-      barcode: `885${String(Math.floor(Math.random() * 9999999)).padStart(7, "0")}`,
+      sku: sku.trim() || newSku(),
+      barcode: barcode.trim() || newBarcode(),
       category,
       brand: brand.trim() || "ไม่ระบุ",
       price: priceNum,
@@ -483,6 +505,33 @@ function ProductForm({
               autoFocus
               className="rounded-xl"
             />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-sku" className="text-xs font-semibold">
+                SKU
+              </Label>
+              <Input
+                id="prod-sku"
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="เช่น NEW-0001"
+                className="rounded-xl"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="prod-barcode" className="text-xs font-semibold">
+                บาร์โค้ด
+              </Label>
+              <Input
+                id="prod-barcode"
+                value={barcode}
+                onChange={(e) => setBarcode(e.target.value)}
+                placeholder="เช่น 8851234567"
+                className="rounded-xl"
+              />
+            </div>
           </div>
 
           {/* อัปโหลดรูปสินค้า */}

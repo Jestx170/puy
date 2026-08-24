@@ -37,6 +37,7 @@ import {
   Table,
   TableBody,
   TableCell,
+  TableFooter,
   TableHead,
   TableHeader,
   TableRow,
@@ -628,18 +629,20 @@ function InventoryOverview() {
                   </TableRow>
                 ))}
               </TableBody>
-              <TableRow className="border-t-2 font-semibold">
-                <TableCell colSpan={3}>รวมทั้งหมด</TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {numberFmt(filteredProducts.reduce((s, p) => s + p.stock, 0))}
-                </TableCell>
-                <TableCell></TableCell>
-                <TableCell></TableCell>
-                <TableCell className="text-right tabular-nums">
-                  {currency(filteredProducts.reduce((s, p) => s + p.stock * p.cost, 0))}
-                </TableCell>
-                <TableCell colSpan={3}></TableCell>
-              </TableRow>
+              <TableFooter>
+                <TableRow className="border-t-2 font-semibold">
+                  <TableCell colSpan={3}>รวมทั้งหมด</TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {numberFmt(filteredProducts.reduce((s, p) => s + p.stock, 0))}
+                  </TableCell>
+                  <TableCell></TableCell>
+                  <TableCell></TableCell>
+                  <TableCell className="text-right tabular-nums">
+                    {currency(filteredProducts.reduce((s, p) => s + p.stock * p.cost, 0))}
+                  </TableCell>
+                  <TableCell colSpan={3}></TableCell>
+                </TableRow>
+              </TableFooter>
             </Table>
           </div>
         )}
