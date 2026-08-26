@@ -86,6 +86,73 @@ export interface Cultivation {
   expectedHarvest: string;
   location: string;
   note?: string | undefined;
+  /** รหัสระยะการเจริญเติบโต (เช่น stage_01) จากตาราง crop_stages */
+  stageId?: string | undefined;
+  /** ครั้งที่เท่าไรใน stage ปัจจุบัน (เริ่มที่ 0) */
+  currentSequence?: number | undefined;
+}
+
+// --- Crop Stage (ระยะการเจริญเติบโต — โปรแกรมการดูแลลำไย 12 ระยะ) ---
+
+export interface CropStage {
+  id: string;
+  name: string;
+  emoji: string;
+  description: string | null;
+  daysMin: number | null;
+  daysMax: number | null;
+  frequencyDays: number | null;
+  sortOrder: number;
+  cropType: string;
+}
+
+export interface StageProduct {
+  id: string;
+  stageId: string;
+  productId: string | null;
+  formula: string | null;
+  sequence: number;
+  isOptional: boolean;
+}
+
+export interface CultivationSchedule {
+  id: string;
+  cultivationId: string;
+  stageId: string;
+  productId: string | null;
+  actionDate: string;
+  sequence: number;
+  notes: string | null;
+}
+
+/** ข้อมูลรอบถัดไปของแปลง — ใช้ใน UI แนะนำสินค้า */
+export interface NextRoundInfo {
+  cultivationId: string;
+  customerId: string;
+  currentStageId: string | null;
+  currentStageName: string | null;
+  currentEmoji: string | null;
+  currentSequence: number;
+  nextStageId: string | null;
+  nextStageName: string | null;
+  nextEmoji: string | null;
+  nextDescription: string | null;
+  nextSequence: number;
+  nextFrequencyDays: number | null;
+  nextActionDate: string | null;
+  /** อีกกี่วันจะถึงรอบถัดไป (ติดลบ = เลยกำหนดแล้ว, null = ไม่ทราบ) */
+  daysUntilNext: number | null;
+}
+
+/** สินค้าที่แนะนำในรอบถัดไป */
+export interface RecommendedProduct {
+  productId: string;
+  productName: string;
+  sku: string;
+  price: number;
+  stock: number;
+  formula: string | null;
+  sequence: number;
 }
 
 // --- Order ---

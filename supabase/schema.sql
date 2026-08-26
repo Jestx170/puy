@@ -219,7 +219,21 @@ create table if not exists public.cultivations (
   customer_id      text not null references public.customers(id) on delete cascade,
   crop             text not null,
   stage            text not null default 'เตรียมดิน'
-                   check (stage in ('เตรียมดิน','ปลูก','ดูแล/บำรุง','ออกดอก/ติดผล','เก็บเกี่ยว')),
+                   check (stage in (
+                     'เตรียมดิน','ปลูก','ดูแล/บำรุง','ออกดอก/ติดผล','เก็บเกี่ยว',
+                     'เตรียมต้นหลังเก็บเกี่ยว',
+                     'แตกใบอ่อน ใบแรก',
+                     'แตกใบอ่อน ใบสอง',
+                     'ราดสาร',
+                     'เปิดตาดอก',
+                     'ยืดช่อดอก',
+                     'บำรุงช่อดอก',
+                     'ดอกบาน',
+                     'ลูกเล็ก',
+                     'ลูกมะเขือพวง',
+                     'ลูกแก้ว',
+                     'ก่อนเก็บ'
+                   )),
   area             numeric(8,2) not null default 0,   -- ไร่
   planted_date     date,
   expected_harvest date,

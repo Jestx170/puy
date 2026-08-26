@@ -99,10 +99,21 @@ function rowToCultivation(r: DbCultivation): Cultivation {
     expectedHarvest: r.expected_harvest ?? "",
     location: r.location,
     note: r.note ?? undefined,
+    stageId: r.stage_id ?? undefined,
+    currentSequence: r.current_sequence ?? undefined,
   };
 }
 
 export const cultivationsApi = {
+  async listAll(): Promise<(Cultivation & { customerId: string })[]> {
+    const { data, error } = await supabase.from("cultivations").select("*");
+    if (error) throw error;
+    return (data as DbCultivation[]).map((r) => ({
+      ...rowToCultivation(r),
+      customerId: r.customer_id,
+    }));
+  },
+
   async listByCustomer(customerId: string): Promise<Cultivation[]> {
     const { data, error } = await supabase
       .from("cultivations")
@@ -126,6 +137,8 @@ export const cultivationsApi = {
         expected_harvest: c.expectedHarvest || null,
         location: c.location,
         note: c.note ?? null,
+        stage_id: c.stageId ?? null,
+        current_sequence: c.currentSequence ?? 0,
       })
       .select()
       .single();
@@ -143,6 +156,8 @@ export const cultivationsApi = {
       row["expected_harvest"] = patch.expectedHarvest || null;
     if (patch.location !== undefined) row["location"] = patch.location;
     if (patch.note !== undefined) row["note"] = patch.note ?? null;
+    if (patch.stageId !== undefined) row["stage_id"] = patch.stageId ?? null;
+    if (patch.currentSequence !== undefined) row["current_sequence"] = patch.currentSequence;
     const { data, error } = await supabase
       .from("cultivations")
       .update(row)
@@ -188,5 +203,7 @@ interface DbCultivation {
   expected_harvest: string | null;
   location: string;
   note: string | null;
+  stage_id: string | null;
+  current_sequence: number | null;
   created_at: string;
 }

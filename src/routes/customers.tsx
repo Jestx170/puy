@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
@@ -40,7 +40,15 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { currency } from "@/lib/format";
 import { cultivationStages, stageTone } from "@/types";
-import type { Cultivation, CultivationStage, Customer, MemberTier, Product } from "@/types";
+import type {
+  Cultivation,
+  CultivationStage,
+  Customer,
+  MemberTier,
+  NextRoundInfo,
+  Product,
+  RecommendedProduct,
+} from "@/types";
 import {
   recommendForCustomer,
   recommendForCultivation,
@@ -86,6 +94,8 @@ import { exportToCSV } from "@/lib/export";
 import { customersApi, cultivationsApi } from "@/lib/api/customers";
 import { productsApi } from "@/lib/api/products";
 import { ordersApi } from "@/lib/api/orders";
+import { nextRoundApi } from "@/lib/api/cultivation-stages";
+import { NextRoundCard } from "@/components/common/NextRoundCard";
 
 export const Route = createFileRoute("/customers")({
   head: () => ({
@@ -111,7 +121,65 @@ const tierTone: Record<string, string> = {
   Bronze: "bg-accent text-accent-foreground",
 };
 
+const longanStages = [
+  "เตรียมต้นหลังเก็บเกี่ยว",
+  "แตกใบอ่อน ใบแรก",
+  "แตกใบอ่อน ใบสอง",
+  "ราดสาร",
+  "เปิดตาดอก",
+  "ยืดช่อดอก",
+  "บำรุงช่อดอก",
+  "ดอกบาน",
+  "ลูกเล็ก",
+  "ลูกมะเขือพวง",
+  "ลูกแก้ว",
+  "ก่อนเก็บ",
+] as const;
+
+const longanStageIdByName: Record<(typeof longanStages)[number], string> = {
+  เตรียมต้นหลังเก็บเกี่ยว: "stage_01",
+  "แตกใบอ่อน ใบแรก": "stage_02",
+  "แตกใบอ่อน ใบสอง": "stage_03",
+  ราดสาร: "stage_04",
+  เปิดตาดอก: "stage_05",
+  ยืดช่อดอก: "stage_06",
+  บำรุงช่อดอก: "stage_07",
+  ดอกบาน: "stage_08",
+  ลูกเล็ก: "stage_09",
+  ลูกมะเขือพวง: "stage_10",
+  ลูกแก้ว: "stage_11",
+  ก่อนเก็บ: "stage_12",
+};
+
+const stageOrder = [...cultivationStages, ...longanStages];
+const isLonganCrop = (crop: string) => crop.includes("ลำไย");
+const isLonganStageName = (stageName: string): stageName is (typeof longanStages)[number] =>
+  longanStages.includes(stageName as (typeof longanStages)[number]);
+const stageOrderIndex = (stageName: string) => {
+  const idx = stageOrder.indexOf(stageName as (typeof stageOrder)[number]);
+  return idx === -1 ? 999 : idx;
+};
+
+function toneForStage(stageName: string) {
+  const base = stageTone[stageName as CultivationStage];
+  if (base) return base;
+  if (stageName.includes("เตรียม")) return "neutral";
+  if (stageName.includes("ดอก")) return "warning";
+  if (stageName.includes("เก็บ")) return "danger";
+  return "info";
+}
+
+function stageBadgeClass(stageName: string) {
+  const tone = toneForStage(stageName);
+  if (tone === "neutral") return "bg-muted text-muted-foreground border-border";
+  if (tone === "info") return "bg-info/12 text-info border-info/25";
+  if (tone === "success") return "bg-success/12 text-success border-success/25";
+  if (tone === "warning") return "bg-warning/15 text-warning border-warning/30";
+  return "bg-destructive/10 text-destructive border-destructive/25";
+}
+
 function CrmPage() {
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [tier, setTier] = useState("all");
   const [stage, setStage] = useState("all"); // กรองตามช่วงการปลูก
@@ -129,6 +197,31 @@ function CrmPage() {
     queryKey: ["customers"],
     queryFn: () => customersApi.list(),
   });
+  const { data: allCultivations = [] } = useQuery({
+    queryKey: ["cultivations", "all"],
+    queryFn: () => cultivationsApi.listAll(),
+  });
+
+  const customersWithCultivations = useMemo(() => {
+    const byCustomer = new Map<string, Cultivation[]>();
+    for (const cul of allCultivations) {
+      const current = byCustomer.get(cul.customerId) ?? [];
+      current.push({
+        id: cul.id,
+        crop: cul.crop,
+        stage: cul.stage,
+        area: cul.area,
+        plantedDate: cul.plantedDate,
+        expectedHarvest: cul.expectedHarvest,
+        location: cul.location,
+        note: cul.note,
+        stageId: cul.stageId,
+        currentSequence: cul.currentSequence,
+      });
+      byCustomer.set(cul.customerId, current);
+    }
+    return list.map((c) => ({ ...c, cultivations: byCustomer.get(c.id) ?? [] }));
+  }, [list, allCultivations]);
 
   // ดึงสินค้าจาก Supabase (สำหรับสินค้าแนะนำ)
   const { data: products = [] } = useQuery({
@@ -137,8 +230,10 @@ function CrmPage() {
   });
 
   // เลือกลูกค้าคนแรกเป็นค่าเริ่มต้นถ้ายังไม่ได้เลือก
-  const effectiveSelected = selected || list[0]?.id || "";
-  const customerBase = list.find((c) => c.id === effectiveSelected) ?? list[0];
+  const effectiveSelected = selected || customersWithCultivations[0]?.id || "";
+  const customerBase =
+    customersWithCultivations.find((c) => c.id === effectiveSelected) ??
+    customersWithCultivations[0];
 
   // ดึงแปลงเพาะปลูกของลูกค้าที่เลือกจาก Supabase
   const { data: cultivationsData = [] } = useQuery({
@@ -162,13 +257,16 @@ function CrmPage() {
 
   // ดึงรายการพืชทั้งหมดจากแปลงเพาะปลูกของลูกค้าทั้งระบบ
   const allCrops = useMemo(
-    () => Array.from(new Set(list.flatMap((c) => c.cultivations.map((cul) => cul.crop)))).sort(),
-    [list],
+    () =>
+      Array.from(
+        new Set(customersWithCultivations.flatMap((c) => c.cultivations.map((cul) => cul.crop))),
+      ).sort(),
+    [customersWithCultivations],
   );
 
   const filtered = useMemo(
     () =>
-      list.filter(
+      customersWithCultivations.filter(
         (c) =>
           (tier === "all" || c.tier === tier) &&
           (stage === "all" || c.cultivations.some((cul) => cul.stage === stage)) &&
@@ -177,7 +275,7 @@ function CrmPage() {
             c.code.toLowerCase().includes(query.toLowerCase()) ||
             c.cultivations.some((cul) => cul.crop.includes(query))),
       ),
-    [list, query, tier, stage, crop],
+    [customersWithCultivations, query, tier, stage, crop],
   );
 
   const addCustomer = async (c: Customer) => {
@@ -212,9 +310,17 @@ function CrmPage() {
   const cultivations = useMemo(
     () =>
       [...(customerWithCultivations?.cultivations ?? [])].sort(
-        (a, b) => cultivationStages.indexOf(a.stage) - cultivationStages.indexOf(b.stage),
+        (a, b) => stageOrderIndex(a.stage) - stageOrderIndex(b.stage),
       ),
     [customerWithCultivations],
+  );
+
+  const stageSummary = useMemo(
+    () =>
+      Array.from(new Set(cultivations.map((c) => c.stage))).sort(
+        (a, b) => stageOrderIndex(a) - stageOrderIndex(b),
+      ),
+    [cultivations],
   );
 
   // สินค้าแนะนำ คำนวณจากช่วงการปลูก + พื้นที่จริงของทุกแปลง
@@ -226,6 +332,58 @@ function CrmPage() {
     () => recommendations.reduce((s, i) => s + i.subtotal, 0),
     [recommendations],
   );
+
+  // ดึงข้อมูลรอบถัดไปจาก view v_cultivation_next_round
+  const { data: nextRounds = [], refetch: refetchNextRounds } = useQuery({
+    queryKey: ["next-rounds", effectiveSelected],
+    queryFn: () => nextRoundApi.listByCustomer(effectiveSelected),
+    enabled: !!effectiveSelected,
+  });
+  const nextRoundByCultivation = useMemo(
+    () => new Map(nextRounds.map((nr) => [nr.cultivationId, nr])),
+    [nextRounds],
+  );
+
+  // ดึงสินค้าแนะนำของแต่ละรอบถัดไป (parallel)
+  const [nextRoundProducts, setNextRoundProducts] = useState<Record<string, RecommendedProduct[]>>(
+    {},
+  );
+
+  useEffect(() => {
+    if (nextRounds.length === 0) {
+      setNextRoundProducts({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      nextRounds.map(async (nr: NextRoundInfo) => ({
+        cultivationId: nr.cultivationId,
+        products: await nextRoundApi.recommendedProducts(nr),
+      })),
+    ).then((results) => {
+      if (cancelled) return;
+      const map: Record<string, RecommendedProduct[]> = {};
+      for (const r of results) map[r.cultivationId] = r.products;
+      setNextRoundProducts(map);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [nextRounds]);
+
+  const longanRecoByCultivation = useMemo(
+    () =>
+      cultivations
+        .filter((cul) => isLonganCrop(cul.crop))
+        .map((cul) => {
+          const nextRound = nextRoundByCultivation.get(cul.id);
+          const items = nextRoundProducts[cul.id] ?? [];
+          return { cultivation: cul, nextRound, items };
+        }),
+    [cultivations, nextRoundByCultivation, nextRoundProducts],
+  );
+
+  const hasAnyRecommendation = recommendations.length > 0 || longanRecoByCultivation.length > 0;
 
   const printQuote = () => {
     if (recommendations.length === 0) {
@@ -257,7 +415,7 @@ function CrmPage() {
   };
 
   // ถ้ายังไม่มีลูกค้าเลย แสดง empty state
-  if (list.length === 0) {
+  if (customersWithCultivations.length === 0) {
     return (
       <div className="space-y-5 p-4 sm:p-6">
         <PageHeader
@@ -292,7 +450,7 @@ function CrmPage() {
     <div className="space-y-5 p-4 sm:p-6">
       <PageHeader
         title="ลูกค้า CRM"
-        description={`${list.length} รายชื่อในระบบ · อัปเดตอัตโนมัติจากการขายหน้าร้าน`}
+        description={`${customersWithCultivations.length} รายชื่อในระบบ · อัปเดตอัตโนมัติจากการขายหน้าร้าน`}
         crumbs={[{ label: "ลูกค้า CRM" }]}
         actions={
           <>
@@ -354,7 +512,7 @@ function CrmPage() {
                 className="w-full"
                 options={[
                   { value: "all", label: "ทุกช่วง" },
-                  ...cultivationStages.map((s) => ({ value: s, label: s })),
+                  ...stageOrder.map((s) => ({ value: s, label: s })),
                 ]}
               />
             </div>
@@ -385,9 +543,9 @@ function CrmPage() {
               <ul className="divide-y">
                 {filtered.map((c) => {
                   // ดึงช่วงการปลูกทั้งหมดของลูกค้า (ไม่ซ้ำ) เพื่อแสดงเป็น badge
-                  const stages = Array.from(
-                    new Set(c.cultivations.map((cul) => cul.stage)),
-                  ) as CultivationStage[];
+                  const stages = Array.from(new Set(c.cultivations.map((cul) => cul.stage))).sort(
+                    (a, b) => stageOrderIndex(a) - stageOrderIndex(b),
+                  );
                   return (
                     <li key={c.id}>
                       <ContextMenu>
@@ -413,17 +571,7 @@ function CrmPage() {
                                   {stages.slice(0, 3).map((s) => (
                                     <span
                                       key={s}
-                                      className={`rounded border px-1 py-0 text-[9px] font-semibold ${
-                                        stageTone[s] === "neutral"
-                                          ? "bg-muted text-muted-foreground border-border"
-                                          : stageTone[s] === "info"
-                                            ? "bg-info/12 text-info border-info/25"
-                                            : stageTone[s] === "success"
-                                              ? "bg-success/12 text-success border-success/25"
-                                              : stageTone[s] === "warning"
-                                                ? "bg-warning/15 text-warning border-warning/30"
-                                                : "bg-destructive/10 text-destructive border-destructive/25"
-                                      }`}
+                                      className={`rounded border px-1 py-0 text-[9px] font-semibold ${stageBadgeClass(s)}`}
                                     >
                                       {s}
                                     </span>
@@ -532,6 +680,7 @@ function CrmPage() {
               <TabsTrigger value="orders">คำสั่งซื้อ</TabsTrigger>
               <TabsTrigger value="docs">เอกสาร</TabsTrigger>
               <TabsTrigger value="reco">สินค้าแนะนำ</TabsTrigger>
+              <TabsTrigger value="next">รอบถัดไป</TabsTrigger>
             </TabsList>
 
             <TabsContent value="cultivation" className="mt-4 space-y-4">
@@ -557,7 +706,7 @@ function CrmPage() {
                 <>
                   {/* สรุปรวมตามช่วงการปลูก */}
                   <div className="grid gap-2 sm:grid-cols-5">
-                    {cultivationStages.map((s) => {
+                    {stageSummary.map((s) => {
                       const count = cultivations.filter((c) => c.stage === s).length;
                       const totalArea = cultivations
                         .filter((c) => c.stage === s)
@@ -584,7 +733,9 @@ function CrmPage() {
                   {/* รายการแปลงเพาะปลูก */}
                   <div className="space-y-2">
                     {cultivations.map((cul) => {
-                      const prog = stageProgress(cul);
+                      const isLongan = isLonganCrop(cul.crop);
+                      const prog = isLongan ? null : stageProgress(cul);
+                      const nextRoundInfo = nextRoundByCultivation.get(cul.id);
                       return (
                         <div key={cul.id} className="rounded-xl border p-4">
                           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -593,17 +744,7 @@ function CrmPage() {
                                 <Sprout className="size-4 shrink-0 text-primary" />
                                 <h3 className="truncate text-sm font-semibold">{cul.crop}</h3>
                                 <span
-                                  className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${
-                                    stageTone[cul.stage] === "neutral"
-                                      ? "bg-muted text-muted-foreground border-border"
-                                      : stageTone[cul.stage] === "info"
-                                        ? "bg-info/12 text-info border-info/25"
-                                        : stageTone[cul.stage] === "success"
-                                          ? "bg-success/12 text-success border-success/25"
-                                          : stageTone[cul.stage] === "warning"
-                                            ? "bg-warning/15 text-warning border-warning/30"
-                                            : "bg-destructive/10 text-destructive border-destructive/25"
-                                  }`}
+                                  className={`shrink-0 rounded-md border px-1.5 py-0.5 text-[10px] font-semibold ${stageBadgeClass(cul.stage)}`}
                                 >
                                   {cul.stage}
                                 </span>
@@ -634,6 +775,7 @@ function CrmPage() {
                                     qc.invalidateQueries({
                                       queryKey: ["cultivations", effectiveSelected],
                                     });
+                                    qc.invalidateQueries({ queryKey: ["cultivations", "all"] });
                                     qc.invalidateQueries({ queryKey: ["customers"] });
                                     toast.success(`ลบแปลง ${cul.crop} แล้ว`);
                                   } catch (e) {
@@ -673,52 +815,102 @@ function CrmPage() {
                             </div>
                           </div>
 
-                          {/* ความคืบหน้ารอบการปลูก คำนวณจากวันปลูก + รอบของพืชชนิดนั้น */}
+                          {/* ความคืบหน้ารอบการปลูก */}
                           <div className="mt-3 border-t pt-3">
-                            <div className="flex items-center justify-between gap-2 text-[11px]">
-                              <span className="text-muted-foreground">
-                                ผ่านมา {Math.max(0, prog.daysSincePlanted)} / {prog.cycleDays} วัน
-                              </span>
-                              <span className="font-semibold tabular-nums">
-                                {prog.progressPct}%
-                              </span>
-                            </div>
-                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-                              <div
-                                className="h-full rounded-full bg-primary transition-all"
-                                style={{ width: `${prog.progressPct}%` }}
-                              />
-                            </div>
-
-                            {prog.isBehindSchedule ? (
-                              <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
-                                <AlertTriangle className="mt-px size-3 shrink-0" />
-                                <span>
-                                  ตามปฏิทินควรอยู่ช่วง{" "}
-                                  <span className="font-semibold">{prog.expectedStage}</span> แล้ว —
-                                  ข้อมูลอาจไม่อัปเดต ควรโทรเช็กและเสนอสินค้าช่วงนี้
-                                </span>
-                              </p>
-                            ) : prog.nextStage ? (
-                              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                                <Clock className="mt-px size-3 shrink-0" />
-                                <span>
-                                  อีก{" "}
-                                  <span className="font-semibold text-foreground">
-                                    {prog.daysToNextStage} วัน
-                                  </span>{" "}
-                                  จะเข้าช่วง{" "}
-                                  <span className="font-semibold text-foreground">
-                                    {prog.nextStage}
-                                  </span>{" "}
-                                  — เตรียมเสนอสินค้าล่วงหน้าได้
-                                </span>
-                              </p>
+                            {isLongan ? (
+                              nextRoundInfo ? (
+                                <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                  <Clock className="mt-px size-3 shrink-0" />
+                                  <span>
+                                    รอบถัดไป{" "}
+                                    <span className="font-semibold text-foreground">
+                                      {nextRoundInfo.nextEmoji} {nextRoundInfo.nextStageName}
+                                    </span>
+                                    {typeof nextRoundInfo.daysUntilNext === "number" &&
+                                      (nextRoundInfo.daysUntilNext < 0 ? (
+                                        <>
+                                          {" "}
+                                          — เลยกำหนด{" "}
+                                          <span className="font-semibold text-destructive">
+                                            {Math.abs(nextRoundInfo.daysUntilNext)} วัน
+                                          </span>
+                                        </>
+                                      ) : (
+                                        <>
+                                          {" "}
+                                          — อีก{" "}
+                                          <span className="font-semibold text-foreground">
+                                            {nextRoundInfo.daysUntilNext} วัน
+                                          </span>
+                                        </>
+                                      ))}
+                                  </span>
+                                </p>
+                              ) : (
+                                <p className="mt-1 flex items-start gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+                                  <AlertTriangle className="mt-px size-3 shrink-0" />
+                                  <span>
+                                    ยังไม่มีข้อมูลรอบถัดไปของลำไย (ยังไม่ผูก
+                                    stage_id/ประวัติการดูแล)
+                                  </span>
+                                </p>
+                              )
                             ) : (
-                              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                                <TrendingUp className="mt-px size-3 shrink-0" />
-                                <span>ครบรอบการปลูกแล้ว — เสนอสินค้าเตรียมดินรอบถัดไปได้</span>
-                              </p>
+                              <>
+                                {prog && (
+                                  <>
+                                    <div className="flex items-center justify-between gap-2 text-[11px]">
+                                      <span className="text-muted-foreground">
+                                        ผ่านมา {Math.max(0, prog.daysSincePlanted)} /{" "}
+                                        {prog.cycleDays} วัน
+                                      </span>
+                                      <span className="font-semibold tabular-nums">
+                                        {prog.progressPct}%
+                                      </span>
+                                    </div>
+                                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                                      <div
+                                        className="h-full rounded-full bg-primary transition-all"
+                                        style={{ width: `${prog.progressPct}%` }}
+                                      />
+                                    </div>
+                                    {prog.isBehindSchedule ? (
+                                      <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+                                        <AlertTriangle className="mt-px size-3 shrink-0" />
+                                        <span>
+                                          ตามปฏิทินควรอยู่ช่วง{" "}
+                                          <span className="font-semibold">
+                                            {prog.expectedStage}
+                                          </span>{" "}
+                                          แล้ว — ข้อมูลอาจไม่อัปเดต ควรโทรเช็กและเสนอสินค้าช่วงนี้
+                                        </span>
+                                      </p>
+                                    ) : prog.nextStage ? (
+                                      <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                        <Clock className="mt-px size-3 shrink-0" />
+                                        <span>
+                                          อีก{" "}
+                                          <span className="font-semibold text-foreground">
+                                            {prog.daysToNextStage} วัน
+                                          </span>{" "}
+                                          จะเข้าช่วง{" "}
+                                          <span className="font-semibold text-foreground">
+                                            {prog.nextStage}
+                                          </span>{" "}
+                                          — เตรียมเสนอสินค้าล่วงหน้าได้
+                                        </span>
+                                      </p>
+                                    ) : (
+                                      <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                        <TrendingUp className="mt-px size-3 shrink-0" />
+                                        <span>
+                                          ครบรอบการปลูกแล้ว — เสนอสินค้าเตรียมดินรอบถัดไปได้
+                                        </span>
+                                      </p>
+                                    )}
+                                  </>
+                                )}
+                              </>
                             )}
                           </div>
                         </div>
@@ -890,36 +1082,38 @@ function CrmPage() {
             </TabsContent>
 
             <TabsContent value="reco" className="mt-4 space-y-3">
-              {recommendations.length === 0 ? (
+              {!hasAnyRecommendation ? (
                 <EmptyState
                   icon={Sparkles}
                   title="ยังแนะนำสินค้าไม่ได้"
-                  description={`${customer.type} รายนี้ไม่มีข้อมูลแปลงเพาะปลูก จึงคำนวณความต้องการไม่ได้ — เพิ่มแปลงก่อนเพื่อให้ระบบแนะนำสินค้าและปริมาณ`}
+                  description={`${customer.type} รายนี้ยังไม่มีข้อมูลเพียงพอสำหรับคำนวณคำแนะนำ — เพิ่มแปลง/อัปเดตระยะ แล้วลองอีกครั้ง`}
                 />
               ) : (
                 <>
-                  <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/40 p-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold">
-                        คำนวณจาก {cultivations.length} แปลง · รวม{" "}
-                        {cultivations.reduce((s, c) => s + c.area, 0)} ไร่
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        ปริมาณคิดจากอัตราการใช้ต่อไร่ตามช่วงการปลูกที่บันทึกไว้
-                      </p>
+                  {recommendations.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border bg-muted/40 p-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">
+                          คำนวณจาก {cultivations.length} แปลง · รวม{" "}
+                          {cultivations.reduce((s, c) => s + c.area, 0)} ไร่
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          ปริมาณคิดจากอัตราการใช้ต่อไร่ตามช่วงการปลูกที่บันทึกไว้
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <p className="text-right">
+                          <span className="block text-[11px] text-muted-foreground">มูลค่ารวม</span>
+                          <span className="text-lg font-bold tabular-nums text-primary">
+                            {currency(recoTotal)}
+                          </span>
+                        </p>
+                        <Button size="sm" className="rounded-xl" onClick={printQuote}>
+                          <Printer className="size-4" /> พิมพ์ใบเสนอราคา
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                      <p className="text-right">
-                        <span className="block text-[11px] text-muted-foreground">มูลค่ารวม</span>
-                        <span className="text-lg font-bold tabular-nums text-primary">
-                          {currency(recoTotal)}
-                        </span>
-                      </p>
-                      <Button size="sm" className="rounded-xl" onClick={printQuote}>
-                        <Printer className="size-4" /> พิมพ์ใบเสนอราคา
-                      </Button>
-                    </div>
-                  </div>
+                  )}
 
                   {/* แยกตามแปลง เพื่อให้เห็นว่าของแต่ละอย่างมาจากแปลงไหน */}
                   {cultivations.map((cul) => {
@@ -975,6 +1169,108 @@ function CrmPage() {
                       </div>
                     );
                   })}
+
+                  {longanRecoByCultivation.length > 0 && (
+                    <div className="space-y-2">
+                      <div className="rounded-xl border bg-muted/30 px-3 py-2">
+                        <p className="text-sm font-semibold">คำแนะนำสำหรับลำไย (ตามระยะจริง)</p>
+                        <p className="text-xs text-muted-foreground">
+                          อ้างอิงจากโปรแกรม 12 ระยะ + รอบถัดไปของแต่ละแปลง
+                        </p>
+                      </div>
+                      {longanRecoByCultivation.map(({ cultivation, nextRound, items }) => (
+                        <div key={`longan-${cultivation.id}`} className="rounded-xl border">
+                          <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
+                            <Sprout className="size-4 shrink-0 text-primary" />
+                            <span className="text-sm font-semibold">{cultivation.crop}</span>
+                            <span className="text-xs text-muted-foreground">
+                              {cultivation.area} ไร่ · {cultivation.stage}
+                            </span>
+                            {nextRound?.nextStageName && (
+                              <span className="ml-auto text-xs font-medium text-primary">
+                                รอบถัดไป: {nextRound.nextEmoji} {nextRound.nextStageName}
+                              </span>
+                            )}
+                          </header>
+                          {items.length === 0 ? (
+                            <p className="px-3 py-2 text-xs text-muted-foreground">
+                              ยังไม่มีสินค้าผูกกับระยะนี้ (ให้ตรวจสอบ stage_products ใน Supabase)
+                            </p>
+                          ) : (
+                            <ul className="divide-y">
+                              {items.map((it) => (
+                                <li
+                                  key={`${cultivation.id}-${it.productId}-${it.sequence}`}
+                                  className="flex items-center justify-between gap-3 px-3 py-2.5"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium">{it.productName}</p>
+                                    <p className="text-xs text-muted-foreground">
+                                      {it.formula ?? "สูตรตามโปรแกรมระยะนี้"}
+                                    </p>
+                                  </div>
+                                  <div className="shrink-0 text-right">
+                                    <p className="text-sm font-semibold tabular-nums">
+                                      {currency(it.price)}
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground tabular-nums">
+                                      คงเหลือ {it.stock}
+                                    </p>
+                                  </div>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
+            </TabsContent>
+
+            <TabsContent value="next" className="mt-4 space-y-3">
+              {nextRounds.length === 0 ? (
+                <EmptyState
+                  icon={Calendar}
+                  title="ยังไม่มีข้อมูลรอบถัดไป"
+                  description="แปลงเพาะปลูกของลูกค้ารายนี้ยังไม่ได้ผูกระยะการเจริญเติบโต (stage_id) — เพิ่มข้อมูลระยะในแปลงเพื่อให้ระบบคำนวณรอบถัดไปได้"
+                />
+              ) : (
+                <>
+                  <div className="flex items-center justify-between rounded-xl border bg-muted/40 p-3">
+                    <div>
+                      <p className="text-sm font-semibold">
+                        รอบการดูแลถัดไป ({nextRounds.length} แปลง)
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        คำนวณจากประวัติการดูแล + ความถี่ของแต่ละระยะ
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {nextRounds.map((nr: NextRoundInfo) => (
+                      <NextRoundCard
+                        key={nr.cultivationId}
+                        nextRound={nr}
+                        products={nextRoundProducts[nr.cultivationId] ?? []}
+                        onOrder={(productIds) => {
+                          if (productIds.length === 0) return;
+                          sessionStorage.setItem(
+                            "pos_prefill_product_ids",
+                            JSON.stringify(productIds),
+                          );
+                          navigate({ to: "/pos" });
+                          toast.success(`เลือก ${productIds.length} รายการ — ไปหน้า POS`);
+                        }}
+                        onCompleted={() => {
+                          refetchNextRounds();
+                          qc.invalidateQueries({ queryKey: ["cultivations", effectiveSelected] });
+                          qc.invalidateQueries({ queryKey: ["cultivations", "all"] });
+                        }}
+                      />
+                    ))}
+                  </div>
                 </>
               )}
             </TabsContent>
@@ -1007,6 +1303,7 @@ function CrmPage() {
         editTarget={cultEditTarget}
         onSaved={() => {
           qc.invalidateQueries({ queryKey: ["cultivations", effectiveSelected] });
+          qc.invalidateQueries({ queryKey: ["cultivations", "all"] });
           qc.invalidateQueries({ queryKey: ["customers"] });
         }}
       />
@@ -1562,7 +1859,7 @@ function CultivationForm({
 }) {
   const isEdit = !!editTarget;
   const [crop, setCrop] = useState("");
-  const [stage, setStage] = useState<CultivationStage>("เตรียมดิน");
+  const [stage, setStage] = useState<string>("เตรียมดิน");
   const [area, setArea] = useState("1");
   const [location, setLocation] = useState("");
   const [plantedDate, setPlantedDate] = useState("");
@@ -1593,6 +1890,15 @@ function CultivationForm({
     }
   }, [open, editTarget]);
 
+  const stageOptions: readonly string[] = isLonganCrop(crop) ? longanStages : cultivationStages;
+
+  useEffect(() => {
+    if (!open) return;
+    if (!stageOptions.includes(stage)) {
+      setStage(stageOptions[0] ?? "เตรียมดิน");
+    }
+  }, [open, stage, stageOptions]);
+
   const submit = async () => {
     if (!crop.trim()) {
       toast.error("กรุณากรอกชื่อพืช");
@@ -1613,12 +1919,14 @@ function CultivationForm({
       if (isEdit && editTarget) {
         await cultivationsApi.update(editTarget.id, {
           crop: crop.trim(),
-          stage,
+          stage: stage as CultivationStage,
           area: areaNum,
           location: location.trim(),
           plantedDate,
           expectedHarvest,
           note: note.trim() || undefined,
+          stageId: isLonganStageName(stage) ? longanStageIdByName[stage] : undefined,
+          currentSequence: 0,
         });
         toast.success(`แก้ไขแปลง ${crop.trim()} แล้ว`);
       } else {
@@ -1626,12 +1934,14 @@ function CultivationForm({
           id: `cul-${Date.now()}`,
           customerId,
           crop: crop.trim(),
-          stage,
+          stage: stage as CultivationStage,
           area: areaNum,
           location: location.trim(),
           plantedDate,
           expectedHarvest,
           note: note.trim() || undefined,
+          stageId: isLonganStageName(stage) ? longanStageIdByName[stage] : undefined,
+          currentSequence: 0,
         });
         toast.success(`เพิ่มแปลง ${crop.trim()} แล้ว`);
       }
@@ -1676,13 +1986,13 @@ function CultivationForm({
               </datalist>
             </div>
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">ช่วงการปลูก</Label>
-              <Select value={stage} onValueChange={(v) => setStage(v as CultivationStage)}>
+              <Label className="text-xs font-semibold">ระยะการเจริญเติบโต</Label>
+              <Select value={stage} onValueChange={setStage}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {cultivationStages.map((s) => (
+                  {stageOptions.map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}
                     </SelectItem>

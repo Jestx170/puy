@@ -264,6 +264,7 @@ export function recommendForCultivation(
 ): RecommendedItem[] {
   const bySku = new Map(products.map((p) => [p.sku, p]));
   const playbook = stagePlaybook[stage];
+  if (!playbook) return [];
 
   return playbook.items.flatMap((item) => {
     const product = bySku.get(item.sku);

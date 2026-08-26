@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -110,6 +110,40 @@ function PosPage() {
   const [method, setMethod] = useState<string>("cash");
   const [cartOpen, setCartOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // รับรายการสินค้าที่ถูกส่งมาจากหน้า customers (รอบถัดไป) แล้ว prefill ตะกร้า
+  useEffect(() => {
+    const raw = sessionStorage.getItem("pos_prefill_product_ids");
+    if (!raw || productList.length === 0) return;
+    let ids: string[] = [];
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) ids = parsed.filter((v) => typeof v === "string");
+    } catch {
+      ids = [];
+    }
+    if (ids.length === 0) {
+      sessionStorage.removeItem("pos_prefill_product_ids");
+      return;
+    }
+    const byId = new Map(productList.map((p) => [p.id, p]));
+    setCart((current) => {
+      const next = [...current];
+      for (const id of ids) {
+        const p = byId.get(id);
+        if (!p || p.stock <= 0) continue;
+        const hit = next.find((l) => l.product.id === p.id);
+        if (hit) {
+          if (hit.qty < p.stock) hit.qty += 1;
+        } else {
+          next.push({ product: p, qty: 1 });
+        }
+      }
+      return next;
+    });
+    sessionStorage.removeItem("pos_prefill_product_ids");
+    toast.success("เติมสินค้าแนะนำเข้าตะกร้าแล้ว");
+  }, [productList]);
 
   const visible = useMemo(
     () =>
