@@ -51,6 +51,16 @@ import { productsApi } from "@/lib/api/products";
 import { customersApi } from "@/lib/api/customers";
 import { ordersApi, type OrderLineInput } from "@/lib/api/orders";
 import { useAuth } from "@/lib/auth";
+import { settingsApi } from "@/lib/api/settings";
+import { promotionsApi, calcDiscountAmount } from "@/lib/api/promotions";
+import { DEFAULT_STORE_SETTINGS } from "@/types";
+import type { Promotion } from "@/types";
+import {
+  checkPosPrefill,
+  clearPosPrefill,
+  readPosPrefill,
+  type PosPrefillPayload,
+} from "@/lib/pos-prefill";
 
 export const Route = createFileRoute("/pos")({
   head: () => ({
@@ -100,49 +110,90 @@ function PosPage() {
     queryKey: ["customers"],
     queryFn: () => customersApi.list(),
   });
+  // ดึงข้อมูลร้านสำหรับพิมพ์ใบเสร็จ
+  const { data: storeSettings = DEFAULT_STORE_SETTINGS } = useQuery({
+    queryKey: ["store-settings"],
+    queryFn: () => settingsApi.get(),
+  });
+  // ดึงโปรโมชันที่ active และอยู่ในช่วงเวลา — สำหรับเลือกส่วนลด
+  const { data: activePromotions = [] } = useQuery({
+    queryKey: ["promotions", "active"],
+    queryFn: () => promotionsApi.listActive(),
+  });
 
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("all");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [customerId, setCustomerId] = useState<string>(customerList[0]?.id ?? "");
   const [discount, setDiscount] = useState(0);
+  const [selectedPromoId, setSelectedPromoId] = useState<string>("");
   const [method, setMethod] = useState<string>("cash");
   const [cartOpen, setCartOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // รับรายการสินค้าที่ถูกส่งมาจากหน้า customers (รอบถัดไป) แล้ว prefill ตะกร้า
+  // รับ payload จากหน้า customers (NextRoundCard) แล้ว prefill ตะกร้า
+  // รักษาลูกค้า/แปลง/ระยะ/ครั้ง/สูตร/จำนวน — ถามก่อนรวมกับตะกร้าเดิม
+  const [pendingPrefill, setPendingPrefill] = useState<PosPrefillPayload | null>(null);
+  const [prefillConsumed, setPrefillConsumed] = useState<string | null>(null);
+
   useEffect(() => {
-    const raw = sessionStorage.getItem("pos_prefill_product_ids");
-    if (!raw || productList.length === 0) return;
-    let ids: string[] = [];
-    try {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) ids = parsed.filter((v) => typeof v === "string");
-    } catch {
-      ids = [];
-    }
-    if (ids.length === 0) {
-      sessionStorage.removeItem("pos_prefill_product_ids");
+    const payload = readPosPrefill();
+    if (!payload || productList.length === 0 || customerList.length === 0) return;
+    // กัน double-submit: ใช้ requestId เป็นหลัก
+    if (prefillConsumed === payload.requestId) return;
+    setPendingPrefill(payload);
+  }, [productList, customerList, prefillConsumed]);
+
+  const applyPrefill = (mode: "merge" | "replace") => {
+    if (!pendingPrefill) return;
+    const check = checkPosPrefill(
+      pendingPrefill,
+      productList.map((p) => ({ id: p.id, stock: p.stock, deletedAt: null })),
+      customerList,
+    );
+    if (check.validLines.length === 0) {
+      toast.error("ไม่มีรายการที่เติมได้", {
+        description: check.problems.map((p) => p.reason).join(", ") || "payload ไม่ถูกต้อง",
+      });
+      setPendingPrefill(null);
+      setPrefillConsumed(pendingPrefill.requestId);
+      clearPosPrefill();
       return;
     }
     const byId = new Map(productList.map((p) => [p.id, p]));
     setCart((current) => {
-      const next = [...current];
-      for (const id of ids) {
-        const p = byId.get(id);
-        if (!p || p.stock <= 0) continue;
-        const hit = next.find((l) => l.product.id === p.id);
-        if (hit) {
-          if (hit.qty < p.stock) hit.qty += 1;
+      const next = mode === "replace" ? [] : [...current];
+      for (const line of check.validLines) {
+        const product = byId.get(line.productId);
+        if (!product) continue;
+        const existing = next.find((l) => l.product.id === line.productId);
+        if (existing) {
+          existing.qty = line.qty; // ใช้จำนวนที่พนักงานกรอก (ไม่บวก +1)
         } else {
-          next.push({ product: p, qty: 1 });
+          next.push({ product, qty: line.qty });
         }
       }
       return next;
     });
-    sessionStorage.removeItem("pos_prefill_product_ids");
-    toast.success("เติมสินค้าแนะนำเข้าตะกร้าแล้ว");
-  }, [productList]);
+    // ตั้งลูกค้าตาม payload (ถ้ายัง valid)
+    if (check.customerValid) {
+      setCustomerId(pendingPrefill.customerId);
+    }
+    // แจ้งปัญหา (สินค้าหาย/สต็อกไม่พอ) โดยไม่บล็อก
+    if (check.problems.length > 0) {
+      toast.warning(
+        `เติม ${check.validLines.length} รายการ · ${check.problems.length} รายการมีปัญหา`,
+        {
+          description: check.problems.map((p) => `${p.line.label}: ${p.reason}`).join("\n"),
+        },
+      );
+    } else {
+      toast.success(`เติม ${check.validLines.length} รายการเข้าตะกร้าแล้ว`);
+    }
+    setPendingPrefill(null);
+    setPrefillConsumed(pendingPrefill.requestId);
+    clearPosPrefill();
+  };
 
   const visible = useMemo(
     () =>
@@ -192,7 +243,10 @@ function PosPage() {
     );
 
   const subtotal = cart.reduce((s, l) => s + l.product.price * l.qty, 0);
-  const discountAmt = Math.min(discount, subtotal);
+  // ถ้าเลือกโปรโมชัน → คำนวณส่วนลดอัตโนมัติ (ส่วนลด% หรือคูปอง) แทนกรอกเอง
+  const selectedPromo = activePromotions.find((p) => p.id === selectedPromoId) ?? null;
+  const effectiveDiscount = selectedPromo ? calcDiscountAmount(selectedPromo, subtotal) : discount;
+  const discountAmt = Math.min(effectiveDiscount, subtotal);
   const total = subtotal - discountAmt;
 
   const printCart = () => {
@@ -203,9 +257,10 @@ function PosPage() {
     const cust = customerList.find((c) => c.id === customerId);
     const methodLabel = paymentKeyToLabel(method);
     printReceipt({
-      storeName: "ปุ๋ยไทย CRM",
-      storeAddress: "123 ถนนเกษตร ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000",
-      storePhone: "043-123-456",
+      storeName: storeSettings.storeName,
+      storeAddress: storeSettings.storeAddress ?? undefined,
+      storePhone: storeSettings.storePhone ?? undefined,
+      taxId: storeSettings.taxId ?? undefined,
       receiptNo: `POS-${Date.now()}`,
       date: new Date().toLocaleString("th-TH"),
       customer: cust?.name,
@@ -303,6 +358,41 @@ function PosPage() {
 
   return (
     <div className="grid h-[calc(100vh-3.5rem)] grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[260px_minmax(0,1fr)_340px] lg:overflow-hidden">
+      {/* ถามก่อนรวม/แทนที่ตะกร้าเดิมเมื่อมี payload จาก CRM */}
+      <AlertDialog
+        open={!!pendingPrefill}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPendingPrefill(null);
+            if (pendingPrefill) {
+              setPrefillConsumed(pendingPrefill.requestId);
+              clearPosPrefill();
+            }
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-2xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>เติมรายการจากแปลงเข้าตะกร้า?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cart.length > 0
+                ? `ตะกร้าปัจจุบันมี ${cart.length} รายการ — เลือก "รวม" เพื่อเพิ่ม หรือ "แทนที่" เพื่อล้างแล้วเติมใหม่`
+                : `จะเติม ${pendingPrefill?.lines.length ?? 0} รายการจากแปลงเข้าตะกร้า`}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">ยกเลิก</AlertDialogCancel>
+            {cart.length > 0 && (
+              <AlertDialogAction className="rounded-xl" onClick={() => applyPrefill("merge")}>
+                รวม
+              </AlertDialogAction>
+            )}
+            <AlertDialogAction className="rounded-xl" onClick={() => applyPrefill("replace")}>
+              {cart.length > 0 ? "แทนที่" : "เติม"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       {/* Left: customer + search + categories */}
       <aside className="card-soft flex min-h-0 flex-col overflow-hidden">
         <div className="space-y-3 border-b p-3">
@@ -408,6 +498,12 @@ function PosPage() {
           discountAmt={discountAmt}
           total={total}
           submitting={submitting}
+          activePromotions={activePromotions}
+          selectedPromoId={selectedPromoId}
+          onSelectPromo={(id) => {
+            setSelectedPromoId(id);
+            setDiscount(0); // ล้าง manual discount เมื่อเลือกโปรโมชัน
+          }}
           onClear={() => setCart([])}
           onQty={setQty}
           onDiscount={setDiscount}
@@ -438,6 +534,12 @@ function PosPage() {
               discountAmt={discountAmt}
               total={total}
               submitting={submitting}
+              activePromotions={activePromotions}
+              selectedPromoId={selectedPromoId}
+              onSelectPromo={(id) => {
+                setSelectedPromoId(id);
+                setDiscount(0);
+              }}
               onClear={() => setCart([])}
               onQty={setQty}
               onDiscount={setDiscount}
@@ -466,6 +568,9 @@ function CartPanel({
   discountAmt,
   total,
   submitting,
+  activePromotions,
+  selectedPromoId,
+  onSelectPromo,
   onClear,
   onQty,
   onDiscount,
@@ -481,6 +586,9 @@ function CartPanel({
   discountAmt: number;
   total: number;
   submitting: boolean;
+  activePromotions: Promotion[];
+  selectedPromoId: string;
+  onSelectPromo: (id: string) => void;
   onClear: () => void;
   onQty: (id: string, delta: number) => void;
   onDiscount: (v: number) => void;
@@ -567,6 +675,27 @@ function CartPanel({
       </ScrollArea>
 
       <div className="space-y-3 border-t p-3">
+        {/* เลือกโปรโมชัน — คำนวณส่วนลดอัตโนมัติ */}
+        {activePromotions.length > 0 && (
+          <div className="space-y-1.5">
+            <label className="text-[11px] font-semibold text-muted-foreground">โปรโมชัน</label>
+            <Select value={selectedPromoId} onValueChange={onSelectPromo}>
+              <SelectTrigger className="h-8 rounded-lg text-xs">
+                <SelectValue placeholder="เลือกโปรโมชัน (ไม่บังคับ)" />
+              </SelectTrigger>
+              <SelectContent className="rounded-xl">
+                <SelectItem value="">ไม่ใช้โปรโมชัน</SelectItem>
+                {activePromotions.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.name} · {p.value}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {/* กรอกส่วนลดเอง (ใช้ได้เมื่อไม่ได้เลือกโปรโมชัน) */}
         <div className="flex items-center gap-2">
           <Banknote className="size-4 shrink-0 text-muted-foreground" />
           <Input
@@ -576,6 +705,7 @@ function CartPanel({
             onChange={(e) => onDiscount(Number(e.target.value) || 0)}
             className="h-8 rounded-lg text-xs"
             placeholder="ส่วนลด (บาท)"
+            disabled={!!selectedPromoId}
           />
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             -{currency(discountAmt)}

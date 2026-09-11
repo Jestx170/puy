@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as CustomersRouteImport } from './routes/customers'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PosRouteImport } from './routes/pos'
+import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as InventoryIndexRouteImport } from './routes/inventory.index'
 import { Route as InventoryAdjustmentRouteImport } from './routes/inventory.adjustment'
 import { Route as InventoryCountRouteImport } from './routes/inventory.count'
@@ -43,6 +44,11 @@ const LoginRoute = LoginRouteImport.update({
 const PosRoute = PosRouteImport.update({
   id: '/pos',
   path: '/pos',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InventoryIndexRoute = InventoryIndexRouteImport.update({
@@ -106,6 +112,7 @@ export interface FileRoutesByFullPath {
   '/customers': typeof CustomersRoute
   '/login': typeof LoginRoute
   '/pos': typeof PosRoute
+  '/settings': typeof SettingsRoute
   '/inventory/adjustment': typeof InventoryAdjustmentRoute
   '/inventory/count': typeof InventoryCountRoute
   '/inventory/movements': typeof InventoryMovementsRoute
@@ -123,6 +130,7 @@ export interface FileRoutesByTo {
   '/customers': typeof CustomersRoute
   '/login': typeof LoginRoute
   '/pos': typeof PosRoute
+  '/settings': typeof SettingsRoute
   '/inventory/adjustment': typeof InventoryAdjustmentRoute
   '/inventory/count': typeof InventoryCountRoute
   '/inventory/movements': typeof InventoryMovementsRoute
@@ -141,6 +149,7 @@ export interface FileRoutesById {
   '/customers': typeof CustomersRoute
   '/login': typeof LoginRoute
   '/pos': typeof PosRoute
+  '/settings': typeof SettingsRoute
   '/inventory/adjustment': typeof InventoryAdjustmentRoute
   '/inventory/count': typeof InventoryCountRoute
   '/inventory/movements': typeof InventoryMovementsRoute
@@ -160,6 +169,7 @@ export interface FileRouteTypes {
     | '/customers'
     | '/login'
     | '/pos'
+    | '/settings'
     | '/inventory/adjustment'
     | '/inventory/count'
     | '/inventory/movements'
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/customers'
     | '/login'
     | '/pos'
+    | '/settings'
     | '/inventory/adjustment'
     | '/inventory/count'
     | '/inventory/movements'
@@ -194,6 +205,7 @@ export interface FileRouteTypes {
     | '/customers'
     | '/login'
     | '/pos'
+    | '/settings'
     | '/inventory/adjustment'
     | '/inventory/count'
     | '/inventory/movements'
@@ -212,6 +224,7 @@ export interface RootRouteChildren {
   CustomersRoute: typeof CustomersRoute
   LoginRoute: typeof LoginRoute
   PosRoute: typeof PosRoute
+  SettingsRoute: typeof SettingsRoute
   InventoryAdjustmentRoute: typeof InventoryAdjustmentRoute
   InventoryCountRoute: typeof InventoryCountRoute
   InventoryMovementsRoute: typeof InventoryMovementsRoute
@@ -253,6 +266,13 @@ declare module '@tanstack/react-router' {
       path: '/pos'
       fullPath: '/pos'
       preLoaderRoute: typeof PosRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inventory/': {
@@ -340,6 +360,7 @@ const rootRouteChildren: RootRouteChildren = {
   CustomersRoute: CustomersRoute,
   LoginRoute: LoginRoute,
   PosRoute: PosRoute,
+  SettingsRoute: SettingsRoute,
   InventoryAdjustmentRoute: InventoryAdjustmentRoute,
   InventoryCountRoute: InventoryCountRoute,
   InventoryMovementsRoute: InventoryMovementsRoute,

@@ -5,6 +5,7 @@
 // ============================================================
 
 import { supabase } from "@/lib/supabase";
+import { stageRounds } from "@/types";
 import type {
   CropStage,
   CultivationSchedule,
@@ -152,6 +153,7 @@ export const cultivationSchedulesApi = {
     sequence: number;
     notes?: string;
   }): Promise<CultivationSchedule> {
+    const stage = await cropStagesApi.get(input.stageId);
     const { data, error } = await supabase
       .from("cultivation_schedules")
       .insert({
@@ -167,10 +169,11 @@ export const cultivationSchedulesApi = {
     if (error) throw error;
 
     // อัปเดต stage_id และ current_sequence ใน cultivations
-    await supabase
+    const { error: updateError } = await supabase
       .from("cultivations")
-      .update({ stage_id: input.stageId, current_sequence: input.sequence })
+      .update({ stage: stage.name, stage_id: input.stageId, current_sequence: input.sequence })
       .eq("id", input.cultivationId);
+    if (updateError) throw updateError;
 
     return rowToSchedule(data as DbCultivationSchedule);
   },
@@ -235,6 +238,7 @@ export const nextRoundApi = {
     );
 
     if (stageProducts.length === 0) {
+      if (nextRound.nextStageName && stageRounds[nextRound.nextStageName]) return [];
       // fallback: ดึงสินค้าทั้งหมดของ stage นั้น (ไม่กรอง sequence)
       const all = await stageProductsApi.listByStage(nextRound.nextStageId);
       return mapToRecommended(all);

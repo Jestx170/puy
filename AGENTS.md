@@ -155,8 +155,37 @@ const { data: list = [], isLoading } = useQuery({
 4. migration-cultivation-stages.sql       # crop_stages / stage_products / cultivation_schedules + view
 5. migration-longan-product-catalog.sql   # สินค้าลำไย 20 SKU + map เข้า 12 ระยะ
 6. migration-longan-only.sql              # บีบ constraint เหลือ 12 ระยะลำไย + แปลงข้อมูลเก่า
-7. mock-longan-demo.sql                   # (ทางเลือก) ข้อมูลเดโมสำหรับทดสอบ
+7. migration-care-program-rounds.sql     # care_program_rounds/groups/options + RPC atomic + unique + nullable date
+8. migration-store-settings.sql           # store_settings (single row) — ข้อมูลร้านสำหรับใบเสร็จ
+9. migration-promotions.sql               # promotions table + RPC increment_promotion_used + seed
+10. mock-longan-demo.sql                   # (ทางเลือก) ข้อมูลเดโมสำหรับทดสอบ
 ```
+
+⚠️ `migration-care-program-rounds.sql` เป็น additive — รักษาข้อมูลเดิม
+แต่ทำให้ `cultivation_schedules.action_date` เป็น nullable และเพิ่ม unique constraint
+บน `(cultivation_id, stage_id, sequence)` เพื่อกัน duplicate completion
+**ห้ามรันกับฐานข้อมูลจริงจนกว่าจะอนุมัติขั้นตอนนี้แยกต่างหาก**
+
+## โปรโมชัน (Promotions)
+
+- ตาราง `promotions` เก็บ: ชื่อ, ประเภท (ส่วนลด/คูปอง/แคมเปญ/ชุดสินค้า), มูลค่า, ขอบเขต, ช่วงเวลา, งบ, ลำดับ
+- API: `promotionsApi.list/listActive/create/update/remove/incrementUsed` ใน `src/lib/api/promotions.ts`
+- `calcDiscountAmount(promo, subtotal)` — คำนวณส่วนลดอัตโนมัติ:
+  - ส่วนลด: parse % จาก value (เช่น "-15%" → 15% ของ subtotal)
+  - คูปอง: parse ฿ จาก value (เช่น "฿200" → 200 บาท)
+  - แคมเปญ/ชุดสินค้า: คืน 0 (พนักงานกรอกเอง)
+- POS: เลือกโปรโมชันใน CartPanel → คำนวณส่วนลดอัตโนมัติ (แทนกรอกเอง)
+- ใบเสนอราคา (customers.tsx): เลือกโปรโมชันก่อนพิมพ์ → แสดงส่วนลดในใบเสนอราคา
+- RPC `increment_promotion_used` — เพิ่มจำนวนการใช้งาน +1
+
+## ตั้งค่าร้าน (Store Settings)
+
+- ตาราง `store_settings` (single-row, `id = 1`) เก็บ: ชื่อร้าน, ที่อยู่, โทร, Tax ID, footer text
+- แก้ไขผ่านหน้า `/settings` (เมนู "ตั้งค่าร้าน" ใน sidebar)
+- API: `settingsApi.get()` / `settingsApi.update()` ใน `src/lib/api/settings.ts`
+- ค่า default อยู่ใน `DEFAULT_STORE_SETTINGS` ใน `@/types` (ใช้ก่อน Supabase ตอบ)
+- ใบเสร็จ/ใบเสนอราคา (`printReceipt`) ดึงค่าจาก `useQuery(["store-settings"])` — ไม่ hardcode
+- รองรับ Tax ID แสดงใต้ที่อยู่ในหัวใบเสร็จ
 
 ## Domain: ลำไยเท่านั้น
 
@@ -174,3 +203,12 @@ const { data: list = [], isLoading } = useQuery({
 
 - warning `vite-tsconfig-paths` มาจาก `@lovable.dev/vite-tanstack-config` — ไม่กระทบการทำงาน ปิดไม่ได้จาก user config
 - auth เป็น localStorage-based (admin/admin123) ไม่ใช่ Supabase Auth
+
+### การเลือกระยะย่อยลำไย
+
+- UI และ `stagePlaybook` ใช้ 18 ตัวเลือก: แยกใบสอง 4 ครั้ง และราดสารทางใบ 3 ครั้ง/ทางดิน 1 ครั้ง ส่วนฐานข้อมูลยังใช้ 12 ระยะหลักเดิม
+- ห้ามเปลี่ยนเลข `stage_01`..`stage_12` ตามลำดับ UI เพราะผูกกับสินค้าและประวัติเดิม
+- `cultivationStageStorage` แปลงตัวเลือกเป็นชื่อระยะหลัก + `stage_id` + `current_sequence`; ครั้งที่กำลังจะดูแล N ใช้ `current_sequence = N - 1` ตามสัญญาของ view รอบถัดไป
+- `cultivationStageSelection` แปลงกลับเป็นตัวเลือกใน UI; เมื่อครบ 4 ครั้งยังคงแสดงครั้งที่ 4 จนมีการเปลี่ยนระยะหลัก
+- การแก้ข้อมูลแปลงโดยไม่เปลี่ยนระยะต้องรักษา `current_sequence` เดิม ไม่รีเซ็ตเป็น 0
+- การเลือกรอบในฟอร์มไม่สร้างรายการประวัติการดูแล; ประวัติสร้างเมื่อกดบันทึกทำแล้วเท่านั้น

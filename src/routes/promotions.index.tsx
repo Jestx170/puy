@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Plus,
   Download,
@@ -17,6 +18,7 @@ import {
   Users,
   TrendingUp,
   Target,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,7 +70,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { productCategories as categories } from "@/lib/constants";
-import type { Promotion } from "@/types";
+import { promotionsApi } from "@/lib/api/promotions";
+import type { Promotion, PromotionScopeType } from "@/types";
 import { exportToCSV } from "@/lib/export";
 
 export const Route = createFileRoute("/promotions/")({
@@ -104,12 +107,17 @@ const kindTone: Record<Promotion["kind"], string> = {
 };
 
 function PromotionsPage() {
+  const qc = useQueryClient();
   const [query, setQuery] = useState("");
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState("priority");
-  const [list, setList] = useState<Promotion[]>([]);
   const [builderOpen, setBuilderOpen] = useState(false);
+
+  const { data: list = [], isLoading } = useQuery({
+    queryKey: ["promotions"],
+    queryFn: () => promotionsApi.list(),
+  });
 
   const filtered = useMemo(() => {
     const out = list.filter(
@@ -134,48 +142,65 @@ function PromotionsPage() {
   const totalUsed = list.reduce((s, p) => s + p.used, 0);
   const totalBudget = list.reduce((s, p) => s + p.budget, 0);
 
-  const toggleStatus = (id: string) => {
-    setList((prev) =>
-      prev.map((p) =>
-        p.id === id
-          ? {
-              ...p,
-              status:
-                p.status === "active" ? "paused" : p.status === "paused" ? "active" : p.status,
-            }
-          : p,
-      ),
-    );
+  const toggleStatus = async (id: string) => {
     const target = list.find((p) => p.id === id);
-    if (target) {
+    if (!target) return;
+    const newStatus =
+      target.status === "active" ? "paused" : target.status === "paused" ? "active" : target.status;
+    if (newStatus === target.status) return;
+    try {
+      await promotionsApi.update(id, { status: newStatus });
+      qc.invalidateQueries({ queryKey: ["promotions"] });
       toast.success(
         target.status === "active"
           ? `หยุดโปรโมชันชั่วคราว: ${target.name}`
           : `เปิดใช้งานโปรโมชัน: ${target.name}`,
       );
+    } catch (e) {
+      toast.error("เปลี่ยนสถานะไม่สำเร็จ", { description: (e as Error).message });
     }
   };
 
-  const duplicate = (p: Promotion) => {
-    const copy: Promotion = {
-      ...p,
-      id: `pr-${Date.now()}`,
-      name: `${p.name} (สำเนา)`,
-      status: "scheduled",
-      used: 0,
-    };
-    setList((prev) => [copy, ...prev]);
-    toast.success(`ทำสำเนาโปรโมชันแล้ว: ${p.name}`);
+  const duplicate = async (p: Promotion) => {
+    try {
+      await promotionsApi.create({
+        name: `${p.name} (สำเนา)`,
+        kind: p.kind,
+        value: p.value,
+        scope: p.scope,
+        scopeType: p.scopeType,
+        start: p.start,
+        end: p.end,
+        budget: p.budget,
+        priority: p.priority,
+        status: "scheduled",
+        note: p.note,
+      });
+      qc.invalidateQueries({ queryKey: ["promotions"] });
+      toast.success(`ทำสำเนาโปรโมชันแล้ว: ${p.name}`);
+    } catch (e) {
+      toast.error("ทำสำเนาไม่สำเร็จ", { description: (e as Error).message });
+    }
   };
 
-  const remove = (id: string) => {
-    setList((prev) => prev.filter((p) => p.id !== id));
-    toast.success("ลบโปรโมชันแล้ว");
+  const remove = async (id: string) => {
+    try {
+      await promotionsApi.remove(id);
+      qc.invalidateQueries({ queryKey: ["promotions"] });
+      toast.success("ลบโปรโมชันแล้ว");
+    } catch (e) {
+      toast.error("ลบไม่สำเร็จ", { description: (e as Error).message });
+    }
   };
 
-  const addPromotion = (p: Promotion) => {
-    setList((prev) => [p, ...prev]);
-    toast.success(`สร้างโปรโมชันใหม่แล้ว: ${p.name}`);
+  const addPromotion = async (p: Omit<Promotion, "id" | "used">) => {
+    try {
+      await promotionsApi.create(p);
+      qc.invalidateQueries({ queryKey: ["promotions"] });
+      toast.success(`สร้างโปรโมชันใหม่แล้ว: ${p.name}`);
+    } catch (e) {
+      toast.error("สร้างไม่สำเร็จ", { description: (e as Error).message });
+    }
   };
 
   return (
@@ -447,15 +472,13 @@ function PromotionBuilder({
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
-  onCreate: (p: Promotion) => void;
+  onCreate: (p: Omit<Promotion, "id" | "used">) => void;
 }) {
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Promotion["kind"]>("ส่วนลด");
   const [value, setValue] = useState("");
   const [scope, setScope] = useState("");
-  const [scopeType, setScopeType] = useState<"category" | "product" | "customer" | "all">(
-    "category",
-  );
+  const [scopeType, setScopeType] = useState<PromotionScopeType>("category");
   const [start, setStart] = useState("");
   const [end, setEnd] = useState("");
   const [budget, setBudget] = useState("500");
@@ -486,18 +509,18 @@ function PromotionBuilder({
         : scopeType === "all"
           ? "ทั้งหมด"
           : scope || "ระบุภายหลัง";
-    const newPromo: Promotion = {
-      id: `pr-${Date.now()}`,
+    const newPromo: Omit<Promotion, "id" | "used"> = {
       name: name.trim(),
       kind,
       value: value.trim(),
       scope: scopeText,
+      scopeType,
       start,
       end,
-      used: 0,
       budget: Number(budget) || 100,
       priority: Number(priority) || 5,
       status: new Date(start) > new Date() ? "scheduled" : "active",
+      note: note.trim() || undefined,
     };
     onCreate(newPromo);
     reset();

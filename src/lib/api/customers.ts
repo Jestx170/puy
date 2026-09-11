@@ -1,4 +1,5 @@
 import { supabase } from "@/lib/supabase";
+import { cultivationStageSelection, cultivationStageStorage } from "@/types";
 import type { Customer, Cultivation, MemberTier } from "@/types";
 
 function rowToCustomer(r: DbCustomer): Customer {
@@ -93,7 +94,7 @@ function rowToCultivation(r: DbCultivation): Cultivation {
   return {
     id: r.id,
     crop: r.crop,
-    stage: r.stage as Cultivation["stage"],
+    stage: cultivationStageSelection(r.stage, r.current_sequence ?? 0),
     area: Number(r.area),
     plantedDate: r.planted_date ?? "",
     expectedHarvest: r.expected_harvest ?? "",
@@ -125,20 +126,21 @@ export const cultivationsApi = {
   },
 
   async create(c: Cultivation & { customerId: string }): Promise<Cultivation> {
+    const stored = cultivationStageStorage(c.stage, c.currentSequence);
     const { data, error } = await supabase
       .from("cultivations")
       .insert({
         id: c.id,
         customer_id: c.customerId,
         crop: c.crop,
-        stage: c.stage,
+        stage: stored.stage,
         area: c.area,
         planted_date: c.plantedDate || null,
         expected_harvest: c.expectedHarvest || null,
         location: c.location,
         note: c.note ?? null,
-        stage_id: c.stageId ?? null,
-        current_sequence: c.currentSequence ?? 0,
+        stage_id: stored.stageId,
+        current_sequence: stored.currentSequence,
       })
       .select()
       .single();
@@ -149,7 +151,12 @@ export const cultivationsApi = {
   async update(id: string, patch: Partial<Cultivation>): Promise<Cultivation> {
     const row: Record<string, unknown> = {};
     if (patch.crop !== undefined) row["crop"] = patch.crop;
-    if (patch.stage !== undefined) row["stage"] = patch.stage;
+    if (patch.stage !== undefined) {
+      const stored = cultivationStageStorage(patch.stage, patch.currentSequence);
+      row["stage"] = stored.stage;
+      row["stage_id"] = stored.stageId;
+      row["current_sequence"] = stored.currentSequence;
+    }
     if (patch.area !== undefined) row["area"] = patch.area;
     if (patch.plantedDate !== undefined) row["planted_date"] = patch.plantedDate || null;
     if (patch.expectedHarvest !== undefined)

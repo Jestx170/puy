@@ -1,368 +1,382 @@
 // ============================================================
 // Fieldstone ERP — Agronomy engine
-// แปลงข้อมูลการเพาะปลูกของลูกค้า (พืช/ช่วง/พื้นที่/วันปลูก)
-// ให้เป็นข้อเสนอขายที่จับต้องได้: สินค้าอะไร ปริมาณเท่าไหร่ เมื่อไหร่
+//
+// แปลงข้อมูลการเพาะปลูกของลูกค้า (พืช/ระยะ/ครั้ง/วันเริ่มรอบ)
+// ให้เป็นคำแนะนำสูตรและการติดตามที่ใช้งานจริง
+//
+// หลักการ (ตามแผนที่อนุมัติ):
+//   - โปรแกรมดูแลมาจาก careProgram (ต้นฉบับ Excel) ชุดเดียว
+//   - แยก "ระยะหลัก" กับ "ครั้งที่กำลังจะดูแล"
+//   - แยกสูตรทางเลือกออกจากสูตรหลัก ไม่รวมบังคับซื้อทุกสูตร
+//   - พนักงานกรอกจำนวนเอง ไม่คำนวณจากไร่อัตโนมัติ
+//   - วันที่ไม่บังคับ ไม่ทราบวันก็ใช้งานได้ แต่ไม่แสดง "ด่วนวันนี้"
+//   - สินค้าที่ยังไม่มีในแคตตาล็อกแสดงเตือนชัดเจน ไม่สงวนเป็นรายการว่าง
 // ============================================================
 
-import type { Cultivation, CultivationStage, Customer, Product } from "@/types";
+import type { Cultivation, Customer, Product } from "@/types";
 import { cultivationStages } from "@/types";
+import {
+  getCareProgramByStageId,
+  getCareProgramByStageName,
+  getCareRound,
+  longanCareProgram,
+  nextMainStageId,
+  nextRoundInStage,
+  STAGE_ID_BY_NAME,
+  STAGE_NAME_BY_ID,
+  type CareFormulaGroup,
+  type CareRound,
+  type CareStageProgram,
+  type LonganMainStage,
+} from "@/lib/careProgram";
 
-/* ------------------------- 1) รอบการดูแลลำไย ------------------------- */
+/* ------------------------- 1) ระยะหลัก 12 ระยะ ------------------------- */
 
-/**
- * จำนวนวันของแต่ละระยะ (ค่ากลางของช่วงในตารางโปรแกรมดูแลลำไย)
- * ใช้คำนวณว่า ณ วันนี้แปลงควรอยู่ระยะไหน และอีกกี่วันจะเข้าระยะถัดไป
- */
-export const stageDurationDays: Record<CultivationStage, number> = {
-  เตรียมต้นหลังเก็บเกี่ยว: 52, // 45-60 วัน
-  "แตกใบอ่อน ใบแรก": 12, // 10-15 วัน
-  "แตกใบอ่อน ใบสอง": 25, // 20-30 วัน
-  ราดสาร: 10, // กรอบ 10 วัน
-  เปิดตาดอก: 12, // 10-14 วัน
-  ยืดช่อดอก: 12,
-  บำรุงช่อดอก: 12,
-  ดอกบาน: 12,
-  ลูกเล็ก: 60,
-  ลูกมะเขือพวง: 60,
-  ลูกแก้ว: 45,
-  ก่อนเก็บ: 20,
-};
+/** ระยะหลักทั้งหมดของลำไย (12 ระยะ) — ใช้แสดง/กรอง/สรุปบน dashboard */
+export const mainStages: readonly LonganMainStage[] = longanCareProgram.map((p) => p.name);
 
-/** ความถี่การพ่นของแต่ละระยะ (วัน/ครั้ง) — null = ทำครั้งเดียว/ตามสภาพต้น */
-export const stageFrequencyDays: Record<CultivationStage, number | null> = {
-  เตรียมต้นหลังเก็บเกี่ยว: 15,
-  "แตกใบอ่อน ใบแรก": null,
-  "แตกใบอ่อน ใบสอง": 7,
-  ราดสาร: 2,
-  เปิดตาดอก: 6,
-  ยืดช่อดอก: 6,
-  บำรุงช่อดอก: 6,
-  ดอกบาน: 6,
-  ลูกเล็ก: 12,
-  ลูกมะเขือพวง: 12,
-  ลูกแก้ว: 10,
-  ก่อนเก็บ: 9,
-};
+/** ชื่อระยะทั้งหมดที่ UI ใช้ (เพื่อรักษา compatibility กับโค้ดเดิมที่ import cultivationStages) */
+export { cultivationStages };
 
-/** ความยาวรอบการดูแลลำไยทั้งรอบ (วัน) — รวมทุกระยะ */
-export const LONGAN_CYCLE_DAYS = cultivationStages.reduce(
-  (sum, stage) => sum + stageDurationDays[stage],
+/** ความยาวรอบการดูแลลำไยทั้งรอบ (วัน) — ผลรวมค่ากลางของแต่ละระยะ */
+export const LONGAN_CYCLE_DAYS = longanCareProgram.reduce(
+  (sum, stage) => sum + (stage.durationMax ?? stage.durationMin ?? 0),
   0,
 );
 
 /** ระบบนี้รองรับลำไยเท่านั้น จึงใช้รอบเดียวกับทุกแปลง */
 export const cycleDaysFor = (_crop?: string) => LONGAN_CYCLE_DAYS;
 
-/** ขอบเขตสะสมของแต่ละระยะ (สัดส่วน 0-1 ของรอบทั้งหมด) */
-const stageBounds = (() => {
-  let acc = 0;
-  return cultivationStages.map((stage) => {
-    const start = acc;
-    acc += stageDurationDays[stage] / LONGAN_CYCLE_DAYS;
-    return { stage, start, end: acc };
-  });
-})();
+/** จำนวนวันของแต่ละระยะ (ค่ากลางของช่วงใน Excel) — รักษา export เดิมไว้ */
+export const stageDurationDays: Record<string, number> = Object.fromEntries(
+  longanCareProgram.map((p) => [p.name, p.durationMax ?? p.durationMin ?? 0]),
+);
 
-/* ------------------------ 2) สินค้าที่ต้องใช้ในแต่ละช่วง ------------------------ */
+/** ความถี่การพ่นของแต่ละระยะ (วัน/ครั้ง) — null = ทำครั้งเดียว/ตามสภาพต้น */
+export const stageFrequencyDays: Record<string, number | null> = Object.fromEntries(
+  longanCareProgram.map((p) => [p.name, p.frequencyDays]),
+);
 
-export interface StageItem {
-  /** SKU ของสินค้าในคลัง */
+/** จำนวนครั้งเริ่มต้นตามแผนของแต่ละระยะ */
+export const stageRoundsDefault: Record<string, number> = Object.fromEntries(
+  longanCareProgram.map((p) => [p.name, p.roundsDefault]),
+);
+
+/** จำนวนครั้งสูงสุดที่อนุญาตของแต่ละระยะ */
+export const stageRoundsMax: Record<string, number> = Object.fromEntries(
+  longanCareProgram.map((p) => [p.name, p.roundsMax]),
+);
+
+/* ------------------------ 2) สูตร/สินค้าที่แนะนำ ------------------------ */
+
+/** สินค้าหนึ่งรายการที่จับคู่กับแคตตาล็อกได้แล้ว */
+export interface RecommendedItem {
+  /** สินค้าจริงในแคตตาล็อก (undefined = SKU ยังไม่มีในแคตตาล็อก) */
+  product: Product | undefined;
+  /** SKU อ้างอิงจากโปรแกรม */
   sku: string;
-  /**
-   * ปริมาณที่ใช้ต่อไร่ (หน่วยตามสินค้า)
-   * null = ไม่คิดตามพื้นที่ (อุปกรณ์ ซื้อครั้งเดียว) ให้ใช้ fixedQty
-   */
-  ratePerRai: number | null;
-  fixedQty?: number;
-  /** เหตุผลที่แนะนำ — แสดงให้พนักงานขายใช้พูดกับลูกค้า */
-  reason: string;
+  /** ชื่อสูตร/ผลิตภัณฑ์ตามต้นฉบับ */
+  label: string;
+  /** จำนวนที่พนักงานกรอก (เริ่มที่ 0/ว่าง — ต้องกรอกก่อนเสนอราคา/ขาย) */
+  qty: number;
+  /** มูลค่ารวมของรายการนี้ (0 ถ้ายังไม่มีสินค้าหรือยังไม่กรอกจำนวน) */
+  subtotal: number;
+  /** true = สูตรนี้เป็นทางเลือก (เลือกหนึ่งหรือมากกว่า ไม่บังคับ) */
+  alternative: boolean;
+  /** true = SKU ยังไม่มีในแคตตาล็อก ต้องผูกสินค้าก่อน */
+  missingCatalog: boolean;
+  /** สต็อกไม่พอ (เฉพาะเมื่อมีสินค้าและกรอกจำนวนแล้ว) */
+  shortStock: boolean;
 }
 
-/** คู่มือการขายตามระยะการดูแลลำไย (SKU ตรงกับ catalog ลำไยใน Supabase) */
-export const stagePlaybook: Record<CultivationStage, { advice: string; items: StageItem[] }> = {
-  เตรียมต้นหลังเก็บเกี่ยว: {
-    advice: "ฟื้นต้นหลังตัดแต่งกิ่ง/เก็บผล พ่นทุก 15 วัน ประมาณ 3 ครั้ง เน้นดันใบ",
-    items: [
-      { sku: "HRM-AMINO", ratePerRai: 0.25, reason: "สาหร่ายอะมิโน ฟื้นต้นหลังเก็บเกี่ยว" },
-      { sku: "FRT-1500", ratePerRai: 0.3, reason: "ตัวหน้าสูง 15-0-0 ดันใบชุดแรก" },
-      { sku: "FRT-301010", ratePerRai: 0.3, reason: "ตัวหน้าสูง 30-10-10 เร่งการแตกยอด" },
-      { sku: "FRT-302010", ratePerRai: 0.3, reason: "ตัวหน้าสูง 30-20-10 สลับสูตรกันดื้อ" },
-    ],
-  },
-  "แตกใบอ่อน ใบแรก": {
-    advice: "พ่น 1 ครั้งหลังใบเพสลาด เสริมธาตุรองและสูตรเสมอให้ใบสมบูรณ์",
-    items: [
-      { sku: "NUT-MICRO", ratePerRai: 0.2, reason: "ธาตุอาหารรองเสริม ป้องกันใบขาดธาตุ" },
-      { sku: "FRT-212121", ratePerRai: 0.3, reason: "สูตรเสมอ 21-21-21 บำรุงใบชุดแรก" },
-      { sku: "FRT-202020", ratePerRai: 0.3, reason: "สูตรเสมอ 20-20-20 ใช้สลับได้" },
-    ],
-  },
-  "แตกใบอ่อน ใบสอง": {
-    advice: "พ่นทุก 7 วัน 4 ครั้ง แต่ละครั้งสูตรไม่เหมือนกัน ปิดท้ายด้วยตัดไนโตรเจน",
-    items: [
-      { sku: "HRM-AMINO", ratePerRai: 0.25, reason: "ครั้งที่ 1: สาหร่ายอะมิโน + ตัวหน้าสูง" },
-      { sku: "FRT-301010", ratePerRai: 0.3, reason: "ครั้งที่ 1: ตัวหน้าสูง 30-10-10" },
-      { sku: "FRT-212121", ratePerRai: 0.3, reason: "ครั้งที่ 2: สูตรเสมอ 21-21-21" },
-      { sku: "FRT-42424", ratePerRai: 0.3, reason: "ครั้งที่ 3: ตัวหน้าต่ำ 4-24-24 คุมใบ" },
-      { sku: "MIN-MG", ratePerRai: 0.2, reason: "ครั้งที่ 4: แมกนีเซียม เพิ่มความเขียวเข้ม" },
-      { sku: "FRT-05234", ratePerRai: 0.25, reason: "ครั้งที่ 4: 0-52-34 ตัดไนโตรเจนสะสมอาหาร" },
-    ],
-  },
-  ราดสาร: {
-    advice: "กรอบ 10 วัน — ทางใบ 3 ครั้ง (เว้น 1 เว้น 2) แล้วทางดินไม่เกิน 2 วันหลังครั้งสุดท้าย",
-    items: [
-      { sku: "CHL-KCLO3", ratePerRai: 0.5, reason: "โพแทสเซียมคลอเรต ทางใบ ชักนำการออกดอก" },
-      { sku: "CHL-NACLO3", ratePerRai: 0.6, reason: "โซเดียมคลอเรต ใช้ทางใบและราดทางดิน" },
-    ],
-  },
-  เปิดตาดอก: {
-    advice: "พ่นทุก 5-7 วัน ประมาณ 2 ครั้ง เปิดตาดอกให้สม่ำเสมอ",
-    items: [
-      { sku: "BLOOM-TIGER", ratePerRai: 0.2, reason: "เสือดอก กระตุ้นการเปิดตาดอก" },
-      { sku: "BLOOM-OPEN", ratePerRai: 0.2, reason: "ยาเปิดตาดอก ช่วยแทงช่อพร้อมกัน" },
-      { sku: "FRT-61236", ratePerRai: 0.3, reason: "6-12-36 สะสมโพแทสเซียมช่วงเปิดตา" },
-    ],
-  },
-  ยืดช่อดอก: {
-    advice: "พ่นทุก 5-7 วัน 2 ครั้ง ยืดช่อให้ยาวสม่ำเสมอ",
-    items: [{ sku: "FRT-105217", ratePerRai: 0.3, reason: "10-52-17 ยืดช่อดอก เพิ่มความสมบูรณ์" }],
-  },
-  บำรุงช่อดอก: {
-    advice: "พ่นทุก 5-7 วัน 2 ครั้ง ใช้สูตรเดียวกับยืดช่อดอก",
-    items: [{ sku: "FRT-105217", ratePerRai: 0.3, reason: "10-52-17 บำรุงช่อก่อนดอกบาน" }],
-  },
-  ดอกบาน: {
-    advice: "พ่นทุก 5-7 วัน 2 ครั้ง เน้นตัวผสมเกสรให้ติดผลดี",
-    items: [{ sku: "POL-DIAMOND", ratePerRai: 0.2, reason: "ไดมอนด์ ช่วยผสมเกสร เพิ่มการติดผล" }],
-  },
-  ลูกเล็ก: {
-    advice: "60 วัน พ่นทุก 10-15 วัน (4-6 ครั้ง) เร่งการเจริญเติบโตของผล",
-    items: [
-      { sku: "FRT-301010", ratePerRai: 0.3, reason: "ตัวหน้าสูง 30-10-10 เร่งขยายผล" },
-      { sku: "FRT-1500", ratePerRai: 0.25, reason: "15-0-0 เสริมไนโตรเจนช่วงลูกเล็ก" },
-    ],
-  },
-  ลูกมะเขือพวง: {
-    advice: "60 วัน พ่นทุก 10-15 วัน (4-6 ครั้ง) ใช้สูตรเสมอให้ผลโตสม่ำเสมอ",
-    items: [
-      { sku: "FRT-212121", ratePerRai: 0.3, reason: "สูตรเสมอ 21-21-21 ขยายขนาดผล" },
-      { sku: "FRT-202020", ratePerRai: 0.3, reason: "สูตรเสมอ 20-20-20 ใช้สลับได้" },
-    ],
-  },
-  ลูกแก้ว: {
-    advice: "45 วัน พ่นทุก 10 วัน (4 ครั้ง) เร่งความหวานและคุณภาพผล",
-    items: [
-      { sku: "FRT-131321", ratePerRai: 0.3, reason: "ตัวท้ายสูง 13-13-21 เพิ่มความหวาน" },
-      { sku: "FRT-82424", ratePerRai: 0.25, reason: "8-24-24 เสริมคุณภาพเนื้อผล" },
-    ],
-  },
-  ก่อนเก็บ: {
-    advice: "20 วันก่อนเก็บ พ่นทุก 8-10 วัน 2 ครั้ง ป้องกันโรคและขัดผิวผล",
-    items: [
-      { sku: "BIO-SKIN", ratePerRai: 0.25, reason: "เชื้อราตัวขัดผิว ผิวผลสวย ลดโรคก่อนเก็บ" },
-    ],
-  },
-};
+/** คำแนะนำสูตรของครั้งดูแลหนึ่ง — แยกตามกลุ่มสูตร */
+export interface CareRecommendation {
+  stageId: string;
+  stageName: LonganMainStage;
+  sequence: number;
+  /** ข้อความสรุประยะจากต้นฉบับ */
+  summary: string;
+  /** วิธีดูแลของครั้งนี้ (ถ้ามี) */
+  method: string | undefined;
+  /** ข้อความระยะห่าง/ความถี่ของครั้งนี้ */
+  spacingNote: string | undefined;
+  /** กลุ่มสูตร — แต่ละกลุ่มมีตัวเลือกที่อาจเป็นทางเลือก */
+  groups: CareRecommendationGroup[];
+  /** true = ไม่มีสินค้าในแคตตาล็อกเลยสำหรับครั้งนี้ */
+  allMissing: boolean;
+}
 
-/* --------------------------- 3) คำนวณความคืบหน้าแปลง --------------------------- */
+export interface CareRecommendationGroup {
+  id: string;
+  label: string;
+  /** true = ตัวเลือกเป็นทางเลือก (เลือกหนึ่งหรือมากกว่า) */
+  alternatives: boolean;
+  items: RecommendedItem[];
+}
+
+/** แปลงกลุ่มสูตรจากโปรแกรมเป็นกลุ่มคำแนะนำ จับคู่กับแคตตาล็อก */
+function buildGroup(group: CareFormulaGroup, bySku: Map<string, Product>): CareRecommendationGroup {
+  const items: RecommendedItem[] = group.options.map((opt) => {
+    const product = bySku.get(opt.sku);
+    return {
+      product,
+      sku: opt.sku,
+      label: opt.label,
+      qty: 0,
+      subtotal: 0,
+      alternative: group.alternatives,
+      missingCatalog: !product,
+      shortStock: false,
+    };
+  });
+  return {
+    id: group.id,
+    label: group.label,
+    alternatives: group.alternatives,
+    items,
+  };
+}
+
+/**
+ * สร้างคำแนะนำสูตรของครั้งดูแลเฉพาะ (stage + sequence)
+ * ใช้ข้อมูลจาก careProgram และจับคู่กับแคตตาล็อกจริง
+ * ไม่คำนวณจำนวนอัตโนมัติ — พนักงานกรอกเองภายหลัง
+ */
+export function recommendRound(
+  stageId: string | null | undefined,
+  sequence: number,
+  products: Product[],
+): CareRecommendation | null {
+  const program = getCareProgramByStageId(stageId);
+  const round = getCareRound(stageId, sequence);
+  if (!program || !round) return null;
+
+  const bySku = new Map(products.map((p) => [p.sku, p]));
+  const groups = round.groups.map((g) => buildGroup(g, bySku));
+  const allMissing = groups.every((g) => g.items.every((i) => i.missingCatalog));
+
+  return {
+    stageId: program.stageId,
+    stageName: program.name,
+    sequence: round.sequence,
+    summary: program.summary,
+    method: round.method,
+    spacingNote: round.spacingNote,
+    groups,
+    allMissing,
+  };
+}
+
+/**
+ * คำนวณมูลค่ารวมของคำแนะนำหนึ่งครั้ง จากจำนวนที่พนักงานกรอก
+ * รายการที่ยังไม่กรอกจำนวนหรือไม่มีในแคตตาล็อกจะไม่นับ
+ */
+export function roundSubtotal(reco: CareRecommendation): number {
+  return reco.groups.reduce((sum, g) => sum + g.items.reduce((s, i) => s + i.subtotal, 0), 0);
+}
+
+/**
+ * อัปเดตจำนวนของรายการในคำแนะนำ พร้อมคำนวณ subtotal/shortStock ใหม่
+ * ไม่อนุญาตจำนวนติดลบ/NaN/ทศนิยม
+ */
+export function setItemQty(
+  reco: CareRecommendation,
+  groupId: string,
+  sku: string,
+  qty: number,
+): CareRecommendation {
+  const safeQty = Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 0;
+  const groups = reco.groups.map((g) => {
+    if (g.id !== groupId) return g;
+    return {
+      ...g,
+      items: g.items.map((i) => {
+        if (i.sku !== sku) return i;
+        const product = i.product;
+        const subtotal = product ? product.price * safeQty : 0;
+        const shortStock = product ? safeQty > product.stock : false;
+        return { ...i, qty: safeQty, subtotal, shortStock };
+      }),
+    };
+  });
+  return { ...reco, groups };
+}
+
+/* -------------------- 3) ความคืบหน้าแปลง (ปฏิทิน) -------------------- */
 
 export interface StageProgress {
-  /** จำนวนวันตั้งแต่วันปลูก (ลบ = ยังไม่ถึงวันปลูก) */
-  daysSincePlanted: number;
-  /** ความยาวรอบการปลูกของพืชนี้ (วัน) */
+  /** จำนวนวันตั้งแต่วันเริ่มรอบดูแล (null = ไม่ทราบวัน) */
+  daysSinceStart: number | null;
+  /** ความยาวรอบการดูแลของพืชนี้ (วัน) */
   cycleDays: number;
-  /** ความคืบหน้า 0-100 */
-  progressPct: number;
-  /** ช่วงที่ควรอยู่ตามปฏิทินการปลูก */
-  expectedStage: CultivationStage;
-  /** ช่วงถัดไป (null = อยู่ช่วงสุดท้ายแล้ว) */
-  nextStage: CultivationStage | null;
-  /** อีกกี่วันจะเข้าช่วงถัดไป (null = ไม่มีช่วงถัดไป) */
+  /** ความคืบหน้า 0-100 (null = ไม่ทราบวัน จึงคำนวณไม่ได้) */
+  progressPct: number | null;
+  /** ระยะที่ควรอยู่ตามปฏิทิน (null = ไม่ทราบวัน) */
+  expectedStage: LonganMainStage | null;
+  /** ระยะถัดไปตามปฏิทิน (null = อยู่ระยะสุดท้ายหรือไม่ทราบวัน) */
+  nextStage: LonganMainStage | null;
+  /** อีกกี่วันจะเข้าระยะถัดไป (null = ไม่ทราบวันหรือไม่มีระยะถัดไป) */
   daysToNextStage: number | null;
-  /**
-   * ปฏิทินเดินหน้าไปไกลกว่าช่วงที่บันทึกไว้
-   * = แปลงน่าจะโตข้ามช่วงแล้วแต่ยังไม่มีใครอัปเดตข้อมูล → ต้องโทรเช็ก + มีโอกาสขาย
-   * (ถ้าบันทึกล้ำหน้าปฏิทินถือว่าปกติ เช่น พืชยืนต้น หรือเกษตรกรทำเร็วกว่ากำหนด)
-   */
+  /** true = ปฏิทินเดินไปไกลกว่าระยะที่บันทึกไว้ (เฉพาะเมื่อทราบวัน) */
   isBehindSchedule: boolean;
-  /** ช่วงที่บันทึกไว้ตามหลังปฏิทินอยู่กี่ขั้น */
+  /** จำนวนระยะที่บันทึกไว้ตามหลังปฏิทิน */
   stagesBehind: number;
+  /** true = ไม่ทราบวันเริ่มรอบ ทุกค่าปฏิทินเป็น unknown */
+  unknownDate: boolean;
 }
 
 const MS_PER_DAY = 86_400_000;
 
-/** ตัดเวลาออกให้เหลือแค่วันที่ เพื่อให้การนับวันไม่คลาดจากชั่วโมง */
+/** ตัดเวลาออกให้เหลือแค่วันที่ ใช้เขตเวลาท้องถิ่น (ไทย) */
 const startOfDay = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
 
+/** ขอบเขตสะสมของแต่ละระยะ (สัดส่วน 0-1 ของรอบทั้งหมด) */
+const stageBounds = (() => {
+  let acc = 0;
+  return longanCareProgram.map((stage) => {
+    const days = stage.durationMax ?? stage.durationMin ?? 0;
+    const start = acc;
+    acc += days / LONGAN_CYCLE_DAYS;
+    return { stage: stage.name, start, end: acc };
+  });
+})();
+
+function parseDate(value: string | null | undefined): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
+}
+
+/**
+ * คำนวณความคืบหน้าแปลงตามปฏิทิน
+ *
+ * กติกา:
+ *   - วันเริ่มรอบไม่บังคับ ถ้าว่าง/เสีย → คืน unknownDate: true ทุกค่าปฏิทินเป็น null
+ *   - ไม่มี NaN ไม่มี "ติดลบล้ำหน้า" จากวันในอนาคต (clamp ที่ 0)
+ *   - วันเก่าหลายปีไม่ทำให้แปลงดูเหมือน "ติดอยู่ระยะสุดท้ายตลอด" เพราะ
+ *     เราไม่ใช้ progressPct เป็นเกณฑ์ระยะเดียว — ระยะจริงมาจากข้อมูลแปลง
+ */
 export function stageProgress(cul: Cultivation, today = new Date()): StageProgress {
   const cycleDays = cycleDaysFor(cul.crop);
-  const planted = new Date(cul.plantedDate);
-  const daysSincePlanted = Math.floor(
-    (startOfDay(today).getTime() - startOfDay(planted).getTime()) / MS_PER_DAY,
+  const start = parseDate(cul.plantedDate);
+
+  if (!start) {
+    return {
+      daysSinceStart: null,
+      cycleDays,
+      progressPct: null,
+      expectedStage: null,
+      nextStage: null,
+      daysToNextStage: null,
+      isBehindSchedule: false,
+      stagesBehind: 0,
+      unknownDate: true,
+    };
+  }
+
+  const daysSinceStart = Math.floor(
+    (startOfDay(today).getTime() - startOfDay(start).getTime()) / MS_PER_DAY,
   );
 
-  const rawPct = (daysSincePlanted / cycleDays) * 100;
-  const progressPct = Math.max(0, Math.min(100, Math.round(rawPct)));
-  const fraction = Math.max(0, Math.min(1, daysSincePlanted / cycleDays));
+  // วันในอนาคต → ยังไม่เริ่ม ถือว่า 0 วัน
+  const elapsed = Math.max(0, daysSinceStart);
+  const fraction = Math.min(1, elapsed / cycleDays);
+  const progressPct = Math.round(fraction * 100);
 
-  // หาช่วงตามปฏิทิน: ช่วงแรกที่ fraction ยังไม่เกินขอบบน
+  // หาระยะตามปฏิทิน: ระยะแรกที่ fraction ยังไม่เกินขอบบน
   const hit = stageBounds.find((b) => fraction < b.end) ?? stageBounds[stageBounds.length - 1]!;
   const expectedStage = hit.stage;
 
-  const idx = cultivationStages.indexOf(expectedStage);
-  const nextStage = idx < cultivationStages.length - 1 ? cultivationStages[idx + 1]! : null;
-  const daysToNextStage = nextStage
-    ? Math.max(0, Math.ceil(hit.end * cycleDays) - daysSincePlanted)
-    : null;
+  const idx = longanCareProgram.findIndex((p) => p.name === expectedStage);
+  const nextStage =
+    idx >= 0 && idx < longanCareProgram.length - 1 ? longanCareProgram[idx + 1]!.name : null;
+  const daysToNextStage = nextStage ? Math.max(0, Math.ceil(hit.end * cycleDays) - elapsed) : null;
 
-  const stagesBehind = idx - cultivationStages.indexOf(cul.stage);
+  // เปรียบเทียบกับระยะที่บันทึกไว้ในแปลง (ใช้ stageId เป็นหลัก)
+  const recordedStageId = cul.stageId ?? STAGE_ID_BY_NAME[cul.stage as LonganMainStage] ?? null;
+  const recordedIdx = recordedStageId
+    ? longanCareProgram.findIndex((p) => p.stageId === recordedStageId)
+    : -1;
+  const stagesBehind = recordedIdx >= 0 ? Math.max(0, idx - recordedIdx) : 0;
 
   return {
-    daysSincePlanted,
+    daysSinceStart,
     cycleDays,
     progressPct,
     expectedStage,
     nextStage,
     daysToNextStage,
     isBehindSchedule: stagesBehind > 0,
-    stagesBehind: Math.max(0, stagesBehind),
+    stagesBehind,
+    unknownDate: false,
   };
 }
 
-/* ----------------------------- 4) สินค้าแนะนำ ----------------------------- */
+/* -------------------- 4) สรุปแปลงตามระยะ (dashboard) -------------------- */
 
-export interface RecommendedItem {
-  product: Product;
-  /** ปริมาณที่แนะนำ (ปัดขึ้นเป็นจำนวนเต็ม) */
-  qty: number;
-  reason: string;
-  /** มูลค่ารวมของรายการนี้ */
-  subtotal: number;
-  /** สินค้าไม่พอในคลัง */
-  shortStock: boolean;
-}
-
-/** ปัดปริมาณขึ้นเป็นจำนวนเต็ม แต่ไม่น้อยกว่า 1 */
-const roundQty = (n: number) => Math.max(1, Math.ceil(n));
-
-/**
- * แนะนำสินค้าสำหรับแปลงเดียว ตามช่วงการปลูกและพื้นที่
- * ใช้ช่วงที่บันทึกไว้เป็นหลัก (ถ้าอยากใช้ปฏิทินให้ส่ง stage มาเอง)
- */
-export function recommendForCultivation(
-  cul: Cultivation,
-  products: Product[],
-  stage: CultivationStage = cul.stage,
-): RecommendedItem[] {
-  const bySku = new Map(products.map((p) => [p.sku, p]));
-  const playbook = stagePlaybook[stage];
-  if (!playbook) return [];
-
-  return playbook.items.flatMap((item) => {
-    const product = bySku.get(item.sku);
-    if (!product) return [];
-    const qty =
-      item.ratePerRai === null
-        ? (item.fixedQty ?? 1)
-        : roundQty(item.ratePerRai * Math.max(1, cul.area));
-    return [
-      {
-        product,
-        qty,
-        reason: item.reason,
-        subtotal: product.price * qty,
-        shortStock: product.stock < qty,
-      },
-    ];
-  });
-}
-
-/**
- * รวมสินค้าแนะนำของทุกแปลงของลูกค้าหนึ่งราย
- * SKU ซ้ำจะถูกรวมปริมาณเข้าด้วยกัน
- */
-export function recommendForCustomer(
-  cultivations: Cultivation[],
-  products: Product[],
-): RecommendedItem[] {
-  const merged = new Map<string, RecommendedItem>();
-
-  for (const cul of cultivations) {
-    for (const item of recommendForCultivation(cul, products)) {
-      const existing = merged.get(item.product.sku);
-      if (existing) {
-        existing.qty += item.qty;
-        existing.subtotal = existing.product.price * existing.qty;
-        existing.shortStock = existing.product.stock < existing.qty;
-      } else {
-        merged.set(item.product.sku, { ...item });
-      }
-    }
-  }
-
-  return [...merged.values()].sort((a, b) => b.subtotal - a.subtotal);
-}
-
-/* -------------------- 5) ลูกค้าที่ควรติดต่อ (เข้าช่วงถัดไป) -------------------- */
-
-/** สรุปจำนวนแปลงเพาะปลูกแยกตามระยะ — สำหรับแดชบอร์ด */
 export interface StageDistribution {
-  stage: CultivationStage;
+  stage: LonganMainStage;
   plots: number;
   /** พื้นที่รวมของแปลงในระยะนี้ (ไร่) */
   area: number;
 }
 
 /**
- * นับแปลงเพาะปลูกแยกตามระยะ จากข้อมูลจริงที่ดึงจาก cultivations table
+ * นับแปลงเพาะปลูกแยกตามระยะหลัก 12 ระยะ จากข้อมูลจริง
  * ระยะที่ไม่มีแปลงจะถูกแสดงด้วย (plots: 0) เพื่อให้เห็นทั้ง 12 ระยะ
+ *
+ * หมายเหตุ: นับตามระยะหลักของแปลง (จาก stageId/stage) ไม่นับครั้งดูแล
+ * แยกจากกัน — ครั้งดูแลไม่ใช่ระยะทางชีววิทยา
  */
 export function cultivationsByStage(cultivations: Cultivation[]): StageDistribution[] {
-  const counts = new Map<CultivationStage, { plots: number; area: number }>();
-  for (const stage of cultivationStages) {
-    counts.set(stage, { plots: 0, area: 0 });
-  }
+  const counts = new Map<LonganMainStage, { plots: number; area: number }>();
+  for (const stage of longanCareProgram) counts.set(stage.name, { plots: 0, area: 0 });
+
   for (const cul of cultivations) {
-    const entry = counts.get(cul.stage);
+    const stageId = cul.stageId ?? STAGE_ID_BY_NAME[cul.stage as LonganMainStage] ?? null;
+    const name = stageId ? STAGE_NAME_BY_ID[stageId] : null;
+    const entry = name ? counts.get(name) : null;
     if (entry) {
       entry.plots += 1;
       entry.area += cul.area;
     }
   }
-  return cultivationStages.map((stage) => ({
-    stage,
-    plots: counts.get(stage)?.plots ?? 0,
-    area: counts.get(stage)?.area ?? 0,
+
+  return longanCareProgram.map((stage) => ({
+    stage: stage.name,
+    plots: counts.get(stage.name)?.plots ?? 0,
+    area: counts.get(stage.name)?.area ?? 0,
   }));
 }
 
-export type FollowUpKind = "upcoming" | "overdue";
+/* -------------------- 5) ลูกค้าที่ควรติดตาม -------------------- */
+
+export type FollowUpKind = "upcoming" | "overdue" | "needs_confirmation";
 
 export interface FollowUp {
   customer: Customer;
   cultivation: Cultivation;
   progress: StageProgress;
   kind: FollowUpKind;
-  /** ช่วงที่ควรขายสินค้าให้ตอนนี้ */
-  targetStage: CultivationStage;
+  /** ระยะที่ควรเสนอสินค้าตอนนี้ (null = ไม่ทราบ/ต้องยืนยัน) */
+  targetStage: LonganMainStage | null;
   /** เหตุผลที่ต้องติดต่อ — ใช้เป็นบทพูดให้พนักงานขาย */
   trigger: string;
-  /** มูลค่าที่คาดว่าจะขายได้ถ้าปิดดีลช่วงนี้ */
-  opportunity: number;
 }
 
 /**
- * หาลูกค้าที่ควรติดต่อ จาก 2 สัญญาณ
+ * หาลูกค้าที่ควรติดตาม จากสัญญาณ:
+ *   1. `overdue` — ปฏิทินเดินไปไกลกว่าระยะที่บันทึก (เฉพาะเมื่อทราบวัน)
+ *   2. `upcoming` — ใกล้เข้าระยะถัดไปภายใน withinDays (เฉพาะเมื่อทราบวัน)
+ *   3. `needs_confirmation` — ไม่ทราบวันเริ่มรอบ จึงต้องติดต่อเพื่อยืนยันระยะ/ครั้ง
  *
- * 1. `upcoming` — แปลงกำลังจะเข้าช่วงถัดไปภายใน `withinDays` → เสนอขายล่วงหน้าก่อนคู่แข่ง
- * 2. `overdue`  — ปฏิทินเดินไปไกลกว่าช่วงที่บันทึก → แปลงน่าจะโตข้ามช่วงแล้วแต่ไม่มีใครอัปเดต
- *                 ต้องโทรเช็ก และมีโอกาสขายของช่วงที่ควรอยู่ตอนนี้ทันที
- *
- * เรียง overdue ขึ้นก่อน (เสียโอกาสไปแล้ว เร่งด่วนกว่า) แล้วตามด้วยความใกล้เปลี่ยนช่วง
+ * ไม่คำนวณมูลค่าโอกาสขายจาก ratePerRai เพราะยังไม่ยืนยันปริมาณใช้
+ * พนักงานกรอกจำนวนเอง จึงไม่มี opportunity ที่เป็นตัวเลขยืนยันได้ในขั้นนี้
  */
 export function findFollowUps(
   customers: Customer[],
-  products: Product[],
+  _products: Product[],
   withinDays = 21,
   today = new Date(),
 ): FollowUp[] {
@@ -373,13 +387,17 @@ export function findFollowUps(
       const progress = stageProgress(cultivation, today);
 
       let kind: FollowUpKind;
-      let targetStage: CultivationStage;
+      let targetStage: LonganMainStage | null;
       let trigger: string;
 
-      if (progress.isBehindSchedule) {
+      if (progress.unknownDate) {
+        kind = "needs_confirmation";
+        targetStage = null;
+        trigger = "ไม่ทราบวันเริ่มรอบดูแล — ควรติดต่อเพื่อยืนยันระยะและครั้งที่กำลังจะดูแล";
+      } else if (progress.isBehindSchedule) {
         kind = "overdue";
         targetStage = progress.expectedStage;
-        trigger = `ตามปฏิทินควรอยู่ช่วง “${progress.expectedStage}” แล้ว แต่บันทึกไว้ว่า “${cultivation.stage}” — ควรโทรเช็กและเสนอปุ๋ยช่วงนี้`;
+        trigger = `ตามปฏิทินควรอยู่ระยะ “${progress.expectedStage}” แล้ว แต่บันทึกไว้ว่า “${cultivation.stage}” — ควรโทรเช็กและยืนยันระยะ`;
       } else if (
         progress.nextStage !== null &&
         progress.daysToNextStage !== null &&
@@ -387,82 +405,152 @@ export function findFollowUps(
       ) {
         kind = "upcoming";
         targetStage = progress.nextStage;
-        trigger = `อีก ${progress.daysToNextStage} วันจะเข้าช่วง “${progress.nextStage}” — เสนอขายล่วงหน้าได้`;
+        trigger = `อีก ${progress.daysToNextStage} วันจะเข้าระยะ “${progress.nextStage}” — เตรียมเสนอสูตรล่วงหน้าได้`;
       } else {
         continue;
       }
 
-      const opportunity = recommendForCultivation(cultivation, products, targetStage).reduce(
-        (s, i) => s + i.subtotal,
-        0,
-      );
-
-      out.push({ customer, cultivation, progress, kind, targetStage, trigger, opportunity });
+      out.push({ customer, cultivation, progress, kind, targetStage, trigger });
     }
   }
 
-  const rank = (f: FollowUp) => (f.kind === "overdue" ? 0 : 1);
+  const rank = (f: FollowUp) =>
+    f.kind === "overdue" ? 0 : f.kind === "needs_confirmation" ? 1 : 2;
   return out.sort(
     (a, b) =>
       rank(a) - rank(b) ||
-      (a.progress.daysToNextStage ?? 999) - (b.progress.daysToNextStage ?? 999) ||
-      b.opportunity - a.opportunity,
+      (a.progress.daysToNextStage ?? Number.MAX_SAFE_INTEGER) -
+        (b.progress.daysToNextStage ?? Number.MAX_SAFE_INTEGER),
   );
 }
 
-/* ------------------ 6) พยากรณ์ความต้องการสินค้าล่วงหน้า ------------------ */
+/* --------------- 6) รอบถัดไปของแปลง (จากโปรแกรม + ประวัติ) --------------- */
 
-export interface DemandItem {
-  product: Product;
-  /** ปริมาณที่คาดว่าลูกค้าทั้งหมดจะต้องใช้ */
-  qty: number;
-  /** จำนวนแปลงที่ต้องใช้สินค้านี้ */
-  plots: number;
-  /** มูลค่ายอดขายที่คาดการณ์ */
-  value: number;
-  /** สต็อกคงเหลือปัจจุบัน */
-  stock: number;
-  /** ต้องสั่งเพิ่มเท่าไหร่ (0 = พอ) */
-  shortfall: number;
+export interface PlotNextAction {
+  cultivationId: string;
+  /** ระยะหลักปัจจุบัน */
+  currentStageId: string | null;
+  currentStageName: LonganMainStage | null;
+  /** ครั้งที่ทำเสร็จแล้วในระยะปัจจุบัน (0 = ยังไม่เคยทำ) */
+  completedSequence: number;
+  /** ครั้งถัดไปที่ควรดูแล (null = ครบแผนแล้ว ต้องยืนยันเปลี่ยนระยะ) */
+  nextSequence: number | null;
+  /** ระยะถัดไปตามชีววิทยา (เมื่อครบแผนแล้ว) */
+  nextStageId: string | null;
+  nextStageName: LonganMainStage | null;
+  /** จำนวนครั้งตามแผนของระยะปัจจุบัน */
+  roundsDefault: number;
+  /** จำนวนครั้งสูงสุดที่อนุญาต */
+  roundsMax: number;
+  /** true = ทำครบแผนแล้ว รอยืนยันเปลี่ยนระยะหรือเพิ่มครั้ง */
+  planComplete: boolean;
+  /** คำแนะนำสูตรของครั้งถัดไป (null = ไม่มีครั้งถัดไป) */
+  recommendation: CareRecommendation | null;
 }
 
 /**
- * พยากรณ์ความต้องการสินค้าในอีก `days` วันข้างหน้า
- * ดูว่าแต่ละแปลงจะอยู่ช่วงไหน ณ วันนั้น แล้วรวมสินค้าที่ต้องใช้
+ * คำนวณการดูแลถัดไปของแปลงจากโปรแกรม + จำนวนครั้งที่ทำเสร็จแล้ว
+ * ไม่ใช้ max(stage_products.sequence) เป็นเกณฑ์จำนวนครั้ง
+ */
+export function plotNextAction(
+  cultivation: Cultivation,
+  completedSequence: number,
+  products: Product[],
+): PlotNextAction {
+  const stageId =
+    cultivation.stageId ?? STAGE_ID_BY_NAME[cultivation.stage as LonganMainStage] ?? null;
+  const program = getCareProgramByStageId(stageId);
+  const currentName = program?.name ?? null;
+
+  const next = nextRoundInStage(stageId, completedSequence);
+  const nextStageId = next ? null : nextMainStageId(stageId);
+  const nextStageProgram = getCareProgramByStageId(nextStageId);
+  const planComplete = !next && !nextStageId ? true : !next;
+
+  const recommendation = next ? recommendRound(stageId, next.sequence, products) : null;
+
+  return {
+    cultivationId: cultivation.id,
+    currentStageId: stageId,
+    currentStageName: currentName,
+    completedSequence,
+    nextSequence: next?.sequence ?? null,
+    nextStageId: next ? null : nextStageId,
+    nextStageName: nextStageProgram?.name ?? null,
+    roundsDefault: program?.roundsDefault ?? 0,
+    roundsMax: program?.roundsMax ?? 0,
+    planComplete,
+    recommendation,
+  };
+}
+
+/* --------------- 7) พยากรณ์ความต้องการ (กลุ่มสินค้าเท่านั้น) --------------- */
+
+export interface DemandSummary {
+  stage: LonganMainStage;
+  /** จำนวนแปลงที่อยู่ระยะนี้ */
+  plots: number;
+  /** กลุ่มสูตรที่เกี่ยวข้องกับระยะนี้ */
+  formulaGroups: string[];
+}
+
+/**
+ * สรุปกลุ่มสินค้า/สูตรที่เกี่ยวข้องกับแปลงในอีก `days` วันข้างหน้า
+ *
+ * ไม่คำนวณจำนวนชิ้นหรือมูลค่า เพราะยังไม่ยืนยันปริมาณใช้/ขนาดบรรจุ
+ * แสดงเฉพาะกลุ่มสูตรและจำนวนแปลง เพื่อให้ร้านเตรียมสต็อกได้
  */
 export function forecastDemand(
   customers: Customer[],
-  products: Product[],
+  _products: Product[],
   days = 30,
   today = new Date(),
-): DemandItem[] {
+): DemandSummary[] {
   const future = new Date(startOfDay(today).getTime() + days * MS_PER_DAY);
-  const merged = new Map<string, DemandItem>();
+  const byStage = new Map<LonganMainStage, { plots: number; groups: Set<string> }>();
+  for (const stage of longanCareProgram) {
+    byStage.set(stage.name, { plots: 0, groups: new Set() });
+  }
 
   for (const customer of customers) {
     for (const cul of customer.cultivations) {
-      // ช่วงที่แปลงนี้จะอยู่ ณ วันในอนาคต
-      const futureStage = stageProgress(cul, future).expectedStage;
-      for (const item of recommendForCultivation(cul, products, futureStage)) {
-        const existing = merged.get(item.product.sku);
-        if (existing) {
-          existing.qty += item.qty;
-          existing.plots += 1;
-          existing.value = existing.product.price * existing.qty;
-          existing.shortfall = Math.max(0, existing.qty - existing.stock);
-        } else {
-          merged.set(item.product.sku, {
-            product: item.product,
-            qty: item.qty,
-            plots: 1,
-            value: item.subtotal,
-            stock: item.product.stock,
-            shortfall: Math.max(0, item.qty - item.product.stock),
-          });
+      const progress = stageProgress(cul, future);
+      const target = progress.expectedStage ?? getCareProgramByStageName(cul.stage)?.name ?? null;
+      if (!target) continue;
+      const entry = byStage.get(target);
+      if (!entry) continue;
+      entry.plots += 1;
+      const program = getCareProgramByStageName(target);
+      if (program) {
+        for (const round of program.rounds) {
+          for (const group of round.groups) entry.groups.add(group.label);
         }
       }
     }
   }
 
-  return [...merged.values()].sort((a, b) => b.value - a.value);
+  return longanCareProgram
+    .map((stage) => ({
+      stage: stage.name,
+      plots: byStage.get(stage.name)?.plots ?? 0,
+      formulaGroups: Array.from(byStage.get(stage.name)?.groups ?? []),
+    }))
+    .filter((s) => s.plots > 0);
 }
+
+/* --------------- 8) ตัวช่วยระยะ/ครั้ง (compatibility) --------------- */
+
+/** ชื่อระยะจาก stageId */
+export function stageNameFromId(stageId: string | null | undefined): LonganMainStage | null {
+  if (!stageId) return null;
+  return STAGE_NAME_BY_ID[stageId] ?? null;
+}
+
+/** stageId จากชื่อระยะ */
+export function stageIdFromName(name: string | null | undefined): string | null {
+  if (!name) return null;
+  return STAGE_ID_BY_NAME[name as LonganMainStage] ?? null;
+}
+
+export { getCareProgramByStageId, getCareProgramByStageName, getCareRound };
+export type { CareRound, CareStageProgram, LonganMainStage };

@@ -12,6 +12,7 @@ import {
   SlidersHorizontal,
   History,
   ClipboardList,
+  Settings,
 } from "lucide-react";
 
 import {
@@ -39,6 +40,7 @@ const modules = [
   { title: "คลังสินค้า", en: "Inventory", url: "/inventory", icon: Warehouse },
   { title: "การขาย", en: "Sales", url: "/sales", icon: TrendingUp },
   { title: "โปรโมชัน", en: "Promotion", url: "/promotions", icon: Gift },
+  { title: "ตั้งค่าร้าน", en: "Settings", url: "/settings", icon: Settings },
 ];
 
 const inventorySub = [

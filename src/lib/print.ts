@@ -13,8 +13,10 @@ export interface ReceiptLine {
 
 export interface ReceiptData {
   storeName: string;
-  storeAddress?: string;
-  storePhone?: string;
+  storeAddress?: string | undefined;
+  storePhone?: string | undefined;
+  /** เลขประจำตัวผู้เสียภาษี (Tax ID) — แสดงใต้ที่อยู่ถ้ามี */
+  taxId?: string | undefined;
   /** ชื่อเอกสาร เช่น "ใบเสนอราคา" (ค่าเริ่มต้น "ใบเสร็จ") */
   docTitle?: string | undefined;
   /** ข้อความปิดท้าย (ค่าเริ่มต้นเป็นข้อความขอบคุณ) */
@@ -28,7 +30,6 @@ export interface ReceiptData {
   subtotal: number;
   discountPct?: number | undefined;
   discountAmt?: number | undefined;
-  vat?: number | undefined;
   total: number;
   payment?: string | undefined;
   note?: string | undefined;
@@ -65,11 +66,6 @@ function buildReceiptHTML(r: ReceiptData): string {
   const discountRow =
     r.discountAmt && r.discountAmt > 0
       ? `<div class="row"><span>ส่วนลด${r.discountPct ? ` ${r.discountPct}%` : ""}</span><span class="num">-${THB(r.discountAmt)}</span></div>`
-      : "";
-
-  const vatRow =
-    r.vat && r.vat > 0
-      ? `<div class="row"><span>ภาษีมูลค่าเพิ่ม 7%</span><span class="num">${THB(r.vat)}</span></div>`
       : "";
 
   return `<!DOCTYPE html>
@@ -117,6 +113,7 @@ function buildReceiptHTML(r: ReceiptData): string {
     <h1>${esc(r.storeName)}</h1>
     ${r.storeAddress ? `<p>${esc(r.storeAddress)}</p>` : ""}
     ${r.storePhone ? `<p>โทร. ${esc(r.storePhone)}</p>` : ""}
+    ${r.taxId ? `<p>เลขประจำตัวผู้เสียภาษี: ${esc(r.taxId)}</p>` : ""}
     ${r.docTitle ? `<p class="doctitle">${esc(r.docTitle)}</p>` : ""}
   </div>
   <div class="divider"></div>
@@ -138,7 +135,6 @@ function buildReceiptHTML(r: ReceiptData): string {
   <div class="totals">
     <div class="row"><span>ยอดรวม</span><span class="num">${THB(r.subtotal)}</span></div>
     ${discountRow}
-    ${vatRow}
     <div class="row grand"><span>ยอดสุทธิ</span><span class="num">${THB(r.total)}</span></div>
   </div>
   ${r.payment ? `<div class="divider"></div><div class="meta"><div><span class="label">วิธีชำระ</span><span>${esc(r.payment)}</span></div></div>` : ""}

@@ -13,6 +13,8 @@ import { printReceipt } from "@/lib/print";
 import { currency } from "@/lib/format";
 import { ordersApi } from "@/lib/api/orders";
 import { productsApi } from "@/lib/api/products";
+import { settingsApi } from "@/lib/api/settings";
+import { DEFAULT_STORE_SETTINGS } from "@/types";
 import type { Product } from "@/types";
 
 export const Route = createFileRoute("/sales/$orderId")({
@@ -60,6 +62,11 @@ function OrderDetail() {
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
   });
+  // ดึงข้อมูลร้านสำหรับพิมพ์ใบเสร็จ
+  const { data: storeSettings = DEFAULT_STORE_SETTINGS } = useQuery({
+    queryKey: ["store-settings"],
+    queryFn: () => settingsApi.get(),
+  });
 
   const productMap = useMemo(
     () => new Map<string, Product>(products.map((p) => [p.id, p])),
@@ -67,7 +74,6 @@ function OrderDetail() {
   );
 
   const subtotal = items.reduce((s, l) => s + l.price * l.qty, 0);
-  const vat = Math.round(subtotal * 0.07);
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -88,9 +94,10 @@ function OrderDetail() {
               className="rounded-xl"
               onClick={() => {
                 printReceipt({
-                  storeName: "ปุ๋ยไทย CRM",
-                  storeAddress: "123 ถนนเกษตร ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000",
-                  storePhone: "043-123-456",
+                  storeName: storeSettings.storeName,
+                  storeAddress: storeSettings.storeAddress ?? undefined,
+                  storePhone: storeSettings.storePhone ?? undefined,
+                  taxId: storeSettings.taxId ?? undefined,
                   receiptNo: order.code,
                   date: order.date,
                   customer: order.customer,
@@ -103,8 +110,7 @@ function OrderDetail() {
                     price: l.price,
                   })),
                   subtotal,
-                  vat,
-                  total: subtotal + vat,
+                  total: subtotal,
                   payment: order.payment,
                 });
                 toast.success("เปิดหน้าต่างพิมพ์แล้ว — เลือกเครื่องพิมพ์เพื่อพิมพ์ใบเสร็จ");
@@ -166,14 +172,10 @@ function OrderDetail() {
                 <span className="text-muted-foreground">ยอดรวม</span>
                 <span className="tabular-nums">{currency(subtotal)}</span>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">ภาษีมูลค่าเพิ่ม 7%</span>
-                <span className="tabular-nums">{currency(vat)}</span>
-              </div>
               <Separator className="my-2" />
               <div className="flex justify-between text-base font-bold">
                 <span>ยอดสุทธิ</span>
-                <span className="text-primary tabular-nums">{currency(subtotal + vat)}</span>
+                <span className="text-primary tabular-nums">{currency(subtotal)}</span>
               </div>
             </div>
           </section>

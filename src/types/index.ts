@@ -62,12 +62,18 @@ export interface Customer {
 //   2. เพิ่ม entry ใน `cropPrograms` พร้อมตั้ง ready: true
 //   3. เพิ่ม playbook ของพืชนั้นใน @/lib/agronomy และ seed crop_stages/stage_products ใน Supabase
 
-/** ระยะการดูแลลำไย 12 ระยะ (ตามตารางโปรแกรมของร้าน) */
+/** ระยะการดูแลลำไย 18 ระยะ (ตามตารางโปรแกรมของร้าน — แยกครั้งย่อยของใบสองและราดสาร) */
 export const longanStages = [
   "เตรียมต้นหลังเก็บเกี่ยว",
   "แตกใบอ่อน ใบแรก",
-  "แตกใบอ่อน ใบสอง",
-  "ราดสาร",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 1",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 2",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 3",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 4",
+  "ราดสาร ทางใบ ครั้งที่ 1",
+  "ราดสาร ทางใบ ครั้งที่ 2",
+  "ราดสาร ทางใบ ครั้งที่ 3",
+  "ราดสาร ทางดิน",
   "เปิดตาดอก",
   "ยืดช่อดอก",
   "บำรุงช่อดอก",
@@ -112,8 +118,14 @@ export const DEFAULT_CROP = "ลำไย";
 export const stageIdByName: Record<CultivationStage, string> = {
   เตรียมต้นหลังเก็บเกี่ยว: "stage_01",
   "แตกใบอ่อน ใบแรก": "stage_02",
-  "แตกใบอ่อน ใบสอง": "stage_03",
-  ราดสาร: "stage_04",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 1": "stage_03",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 2": "stage_03",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 3": "stage_03",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 4": "stage_03",
+  "ราดสาร ทางใบ ครั้งที่ 1": "stage_04",
+  "ราดสาร ทางใบ ครั้งที่ 2": "stage_04",
+  "ราดสาร ทางใบ ครั้งที่ 3": "stage_04",
+  "ราดสาร ทางดิน": "stage_04",
   เปิดตาดอก: "stage_05",
   ยืดช่อดอก: "stage_06",
   บำรุงช่อดอก: "stage_07",
@@ -124,21 +136,26 @@ export const stageIdByName: Record<CultivationStage, string> = {
   ก่อนเก็บ: "stage_12",
 };
 
-/** อีโมจิประจำระยะ ใช้ให้ตรงกับ crop_stages.emoji */
-export const stageEmoji: Record<CultivationStage, string> = {
-  เตรียมต้นหลังเก็บเกี่ยว: "🌱",
-  "แตกใบอ่อน ใบแรก": "🌿",
-  "แตกใบอ่อน ใบสอง": "🍃",
-  ราดสาร: "💀",
-  เปิดตาดอก: "🌸",
-  ยืดช่อดอก: "🌺",
-  บำรุงช่อดอก: "🌷",
-  ดอกบาน: "🌼",
-  ลูกเล็ก: "🍒",
-  ลูกมะเขือพวง: "🍊",
-  ลูกแก้ว: "🍏",
-  ก่อนเก็บ: "👍",
+export const stageRounds: Record<string, readonly CultivationStage[]> = {
+  "แตกใบอ่อน ใบสอง": longanStages.slice(2, 6),
+  ราดสาร: longanStages.slice(6, 10),
 };
+
+export function cultivationStageSelection(stage: string, completedSequence = 0): CultivationStage {
+  const rounds = stageRounds[stage];
+  return rounds
+    ? rounds[Math.max(0, Math.min(rounds.length - 1, completedSequence))]!
+    : (stage as CultivationStage);
+}
+
+export function cultivationStageStorage(stage: CultivationStage, completedSequence?: number) {
+  const parent = Object.entries(stageRounds).find(([, rounds]) => rounds.includes(stage));
+  return {
+    stage: parent?.[0] ?? stage,
+    stageId: stageIdByName[stage],
+    currentSequence: completedSequence ?? (parent ? parent[1].indexOf(stage) : 0),
+  };
+}
 
 export const stageTone: Record<
   CultivationStage,
@@ -146,8 +163,14 @@ export const stageTone: Record<
 > = {
   เตรียมต้นหลังเก็บเกี่ยว: "neutral",
   "แตกใบอ่อน ใบแรก": "success",
-  "แตกใบอ่อน ใบสอง": "success",
-  ราดสาร: "danger",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 1": "success",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 2": "success",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 3": "success",
+  "แตกใบอ่อน ใบสอง ครั้งที่ 4": "success",
+  "ราดสาร ทางใบ ครั้งที่ 1": "danger",
+  "ราดสาร ทางใบ ครั้งที่ 2": "danger",
+  "ราดสาร ทางใบ ครั้งที่ 3": "danger",
+  "ราดสาร ทางดิน": "danger",
   เปิดตาดอก: "warning",
   ยืดช่อดอก: "warning",
   บำรุงช่อดอก: "warning",
@@ -308,18 +331,23 @@ export type PromotionKind = "ส่วนลด" | "คูปอง" | "แค�
 
 export type PromotionStatus = "active" | "scheduled" | "ended" | "paused";
 
+export type PromotionScopeType = "category" | "product" | "customer" | "all";
+
 export interface Promotion {
   id: string;
   name: string;
   kind: PromotionKind;
   value: string;
   scope: string;
+  /** ประเภทขอบเขต (category/product/customer/all) — ใช้ตอนกรองสินค้า/ลูกค้า */
+  scopeType?: PromotionScopeType | undefined;
   start: string;
   end: string;
   used: number;
   budget: number;
   priority: number;
   status: PromotionStatus;
+  note?: string | undefined;
 }
 
 // --- Activity & Notification ---
@@ -360,3 +388,25 @@ export interface AppUser {
   status: "active" | "invited" | "suspended";
   lastActive: string;
 }
+
+/** ข้อมูลร้านสำหรับพิมพ์ใบเสร็จ/ใบเสนอราคา (single-row table id = 1) */
+export interface StoreSettings {
+  storeName: string;
+  storeAddress: string | null;
+  storePhone: string | null;
+  /** เลขประจำตัวผู้เสียภาษี (Tax ID) */
+  taxId: string | null;
+  /** ข้อความปิดท้ายใบเสร็จ (null = ใช้ default ใน print.ts) */
+  footerText: string | null;
+  updatedAt: string;
+}
+
+/** ค่าเริ่มต้นของข้อมูลร้าน (ใช้ก่อน Supabase ตอบกลับ หรือเมื่อยังไม่มี row) */
+export const DEFAULT_STORE_SETTINGS: StoreSettings = {
+  storeName: "ปุ๋ยไทย CRM",
+  storeAddress: "123 ถนนเกษตร ต.ในเมือง อ.เมือง จ.ขอนแก่น 40000",
+  storePhone: "043-123-456",
+  taxId: null,
+  footerText: null,
+  updatedAt: new Date().toISOString(),
+};

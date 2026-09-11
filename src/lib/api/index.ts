@@ -24,3 +24,5 @@ export {
   type TopProduct,
   type BestCustomer,
 } from "./dashboard";
+export { settingsApi } from "./settings";
+export { promotionsApi, calcDiscountAmount } from "./promotions";

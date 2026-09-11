@@ -42,6 +42,7 @@ import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { compactCurrency, currency, numberFmt } from "@/lib/format";
 import { findFollowUps, forecastDemand, cultivationsByStage } from "@/lib/agronomy";
+import type { LonganMainStage } from "@/lib/careProgram";
 import {
   dashboardApi,
   type BestCustomer,
@@ -54,8 +55,7 @@ import { activitiesApi } from "@/lib/api/activities";
 import { notificationsApi } from "@/lib/api/notifications";
 import { customersApi, cultivationsApi } from "@/lib/api/customers";
 import { productsApi } from "@/lib/api/products";
-import type { Product, Customer, CultivationStage } from "@/types";
-import { stageEmoji } from "@/types";
+import type { Product, Customer } from "@/types";
 import { exportToCSV } from "@/lib/export";
 
 export const Route = createFileRoute("/")({
@@ -184,17 +184,41 @@ function Dashboard() {
     queryFn: () => cultivationsApi.listAll(),
   });
 
-  // วิเคราะห์การเพาะปลูก: ลูกค้าที่ควรติดต่อ + พยากรณ์ความต้องการสินค้า
+  // รวมแปลงเพาะปลูกเข้ากับลูกค้าก่อนวิเคราะห์ — กันกรณี customers มี cultivations ว่าง
+  // (ก่อนหน้านี้ส่ง customers ที่ cultivations ว่างเข้า findFollowUps/forecastDemand ทำให้ผลว่าง)
+  const customersWithPlots = useMemo(() => {
+    const byCustomer = new Map<string, Customer["cultivations"]>();
+    for (const cul of allCultivations) {
+      const arr = byCustomer.get(cul.customerId) ?? [];
+      arr.push({
+        id: cul.id,
+        crop: cul.crop,
+        stage: cul.stage,
+        area: cul.area,
+        plantedDate: cul.plantedDate,
+        expectedHarvest: cul.expectedHarvest,
+        location: cul.location,
+        note: cul.note,
+        stageId: cul.stageId,
+        currentSequence: cul.currentSequence,
+      });
+      byCustomer.set(cul.customerId, arr);
+    }
+    return customers.map((c) => ({ ...c, cultivations: byCustomer.get(c.id) ?? [] }));
+  }, [customers, allCultivations]);
+
+  // วิเคราะห์การเพาะปลูก: ลูกค้าที่ควรติดต่อ + พยากรณ์กลุ่มสินค้าที่เกี่ยวข้อง
+  // ไม่คำนวณมูลค่า/จำนวนชิ้นเพราะยังไม่ยืนยันปริมาณใช้/ขนาดบรรจุ
   const followUps = useMemo(
-    () => (customers.length && products.length ? findFollowUps(customers, products, 21) : []),
-    [customers, products],
+    () => (customersWithPlots.length ? findFollowUps(customersWithPlots, products, 21) : []),
+    [customersWithPlots, products],
   );
   const demand = useMemo(
-    () => (customers.length && products.length ? forecastDemand(customers, products, 30) : []),
-    [customers, products],
+    () => (customersWithPlots.length ? forecastDemand(customersWithPlots, products, 30) : []),
+    [customersWithPlots, products],
   );
-  const opportunityTotal = followUps.reduce((s, f) => s + f.opportunity, 0);
-  const demandShortfall = demand.filter((d) => d.shortfall > 0);
+  const needsConfirmationCount = followUps.filter((f) => f.kind === "needs_confirmation").length;
+  const demandPlotsTotal = demand.reduce((s, d) => s + d.plots, 0);
 
   // สรุปแปลงเพาะปลูกแยกตามระยะ — ดึงจากข้อมูลจริงใน cultivations table
   const stageDist = useMemo(() => cultivationsByStage(allCultivations), [allCultivations]);
@@ -202,7 +226,7 @@ function Dashboard() {
   const topStage =
     stageDist.reduce(
       (best, s) => (s.plots > (best?.plots ?? 0) ? s : best),
-      stageDist[0] as { stage: CultivationStage; plots: number; area: number } | undefined,
+      stageDist[0] as { stage: LonganMainStage; plots: number; area: number } | undefined,
     ) ?? stageDist[0];
   const totalArea = allCultivations.reduce((s, c) => s + c.area, 0);
 
@@ -530,7 +554,11 @@ function Dashboard() {
           title="ลูกค้าที่ควรติดต่อ"
           subtitle={
             followUps.length > 0
-              ? `${followUps.length} แปลงเปลี่ยนช่วงการปลูก · โอกาสขาย ${currency(opportunityTotal)}`
+              ? `${followUps.length} แปลง${
+                  needsConfirmationCount > 0
+                    ? ` · ${needsConfirmationCount} แปลงยังไม่ทราบวันเริ่มรอบ`
+                    : ""
+                }`
               : "ไม่มีแปลงที่ต้องติดตามในช่วงนี้"
           }
           action={
@@ -543,7 +571,7 @@ function Dashboard() {
         >
           {followUps.length === 0 ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              ทุกแปลงอยู่ในช่วงที่บันทึกไว้ตรงตามปฏิทิน
+              ทุกแปลงอยู่ในระยะที่บันทึกไว้ตรงตามปฏิทิน หรือยังไม่มีแปลงในระบบ
             </p>
           ) : (
             <ul className="divide-y">
@@ -551,11 +579,17 @@ function Dashboard() {
                 <li key={`${f.customer.id}-${f.cultivation.id}`} className="flex gap-3 px-4 py-3">
                   <span
                     className={`mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg ${
-                      f.kind === "overdue" ? "bg-warning/15 text-warning" : "bg-info/12 text-info"
+                      f.kind === "overdue"
+                        ? "bg-warning/15 text-warning"
+                        : f.kind === "needs_confirmation"
+                          ? "bg-muted text-muted-foreground"
+                          : "bg-info/12 text-info"
                     }`}
                   >
                     {f.kind === "overdue" ? (
                       <AlertTriangle className="size-4" />
+                    ) : f.kind === "needs_confirmation" ? (
+                      <PhoneCall className="size-4" />
                     ) : (
                       <Clock className="size-4" />
                     )}
@@ -566,25 +600,19 @@ function Dashboard() {
                       <Sprout className="mr-1 inline size-3" />
                       {f.cultivation.crop} · {f.cultivation.area} ไร่ ·{" "}
                       {f.kind === "overdue"
-                        ? `ควรอยู่ช่วง ${f.progress.expectedStage} แล้ว`
-                        : `อีก ${f.progress.daysToNextStage} วันเข้า ${f.progress.nextStage}`}
+                        ? `ควรอยู่ระยะ ${f.progress.expectedStage} แล้ว`
+                        : f.kind === "needs_confirmation"
+                          ? "ยังไม่ทราบวันเริ่มรอบ"
+                          : `อีก ${f.progress.daysToNextStage} วันเข้า ${f.progress.nextStage}`}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-muted-foreground">
-                      เสนอสินค้าช่วง{" "}
-                      <span className="font-medium text-foreground">{f.targetStage}</span>
-                    </p>
+                    <p className="mt-0.5 text-[11px] text-muted-foreground">{f.trigger}</p>
                   </div>
-                  <div className="shrink-0 text-right">
-                    <p className="text-sm font-semibold tabular-nums text-primary">
-                      {compactCurrency(f.opportunity)}
-                    </p>
-                    <a
-                      href={`tel:${f.customer.phone}`}
-                      className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-primary"
-                    >
-                      <PhoneCall className="size-3" /> โทร
-                    </a>
-                  </div>
+                  <a
+                    href={`tel:${f.customer.phone}`}
+                    className="shrink-0 self-center text-[11px] text-muted-foreground hover:text-primary"
+                  >
+                    <PhoneCall className="size-3" /> โทร
+                  </a>
                 </li>
               ))}
             </ul>
@@ -592,10 +620,12 @@ function Dashboard() {
         </Widget>
 
         <Widget
-          title="พยากรณ์ความต้องการสินค้า"
-          subtitle={`30 วันข้างหน้า · มูลค่า ${currency(demand.reduce((s, d) => s + d.value, 0))}${
-            demandShortfall.length > 0 ? ` · ${demandShortfall.length} รายการสต็อกไม่พอ` : ""
-          }`}
+          title="กลุ่มสินค้าที่เกี่ยวข้องใน 30 วันข้างหน้า"
+          subtitle={
+            demand.length > 0
+              ? `${demandPlotsTotal} แปลง · จัดเตรียมสูตร/สต็อกตามระยะ`
+              : "ยังไม่มีข้อมูลแปลงเพาะปลูกเพียงพอ"
+          }
           action={
             <Button variant="ghost" size="sm" className="rounded-lg text-xs" asChild>
               <Link to="/inventory">
@@ -611,29 +641,23 @@ function Dashboard() {
           ) : (
             <ul className="divide-y">
               {demand.slice(0, 6).map((d) => (
-                <li key={d.product.id} className="flex items-center gap-3 px-4 py-3">
-                  <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-xl bg-muted">
-                    <ProductImage
-                      imageUrl={d.product.imageUrl}
-                      name={d.product.name}
-                      iconClassName="size-5"
-                    />
+                <li key={d.stage} className="flex items-start gap-3 px-4 py-3">
+                  <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-info/12 text-info">
+                    <Sprout className="size-4" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{d.product.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      ต้องใช้ {numberFmt(d.qty)} {d.product.unit} · {d.plots} แปลง · สต็อก{" "}
-                      {numberFmt(d.stock)}
-                    </p>
-                    {d.shortfall > 0 && (
-                      <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-warning">
-                        <AlertTriangle className="size-3 shrink-0" />
-                        ต้องสั่งเพิ่ม {numberFmt(d.shortfall)} {d.product.unit}
+                    <p className="truncate text-sm font-medium">{d.stage}</p>
+                    <p className="text-xs text-muted-foreground">{d.plots} แปลง</p>
+                    {d.formulaGroups.length > 0 && (
+                      <p className="mt-0.5 line-clamp-2 text-[11px] text-muted-foreground">
+                        {d.formulaGroups.join(" · ")}
                       </p>
                     )}
                   </div>
-                  <p className="shrink-0 text-right text-sm font-semibold tabular-nums">
-                    {compactCurrency(d.value)}
+                  <p className="shrink-0 text-right text-[11px] text-muted-foreground">
+                    ปริมาณใช้
+                    <br />
+                    รองยืนยัน
                   </p>
                 </li>
               ))}
@@ -669,7 +693,6 @@ function Dashboard() {
               const isTop = !!topStage && s.stage === topStage.stage && s.plots > 0;
               return (
                 <div key={s.stage} className="flex items-center gap-2">
-                  <span className="w-6 shrink-0 text-center text-sm">{stageEmoji[s.stage]}</span>
                   <div className="min-w-0 flex-1">
                     <div className="flex items-baseline justify-between gap-2">
                       <span className="truncate text-xs font-medium">{s.stage}</span>
