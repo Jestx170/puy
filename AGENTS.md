@@ -146,6 +146,30 @@ const { data: list = [], isLoading } = useQuery({
 - RPC `record_stock_movement` — stock in/out/adjustment แบบ atomic + audit trail
 - RPC `delete_product_safe` — soft delete ถ้ามีประวัติขาย, hard delete ถ้าไม่มี
 
+### ลำดับการรัน migration (สำคัญ — ต้องเรียงตามนี้)
+
+```
+1. schema.sql                             # ตารางหลักทั้งหมด
+2. migration-phase2.sql                   # image_url, audit trail, RPC
+3. migration-storage-bucket.sql           # bucket product-images
+4. migration-cultivation-stages.sql       # crop_stages / stage_products / cultivation_schedules + view
+5. migration-longan-product-catalog.sql   # สินค้าลำไย 20 SKU + map เข้า 12 ระยะ
+6. migration-longan-only.sql              # บีบ constraint เหลือ 12 ระยะลำไย + แปลงข้อมูลเก่า
+7. mock-longan-demo.sql                   # (ทางเลือก) ข้อมูลเดโมสำหรับทดสอบ
+```
+
+## Domain: ลำไยเท่านั้น
+
+ระบบนี้รองรับ **ลำไย** พืชเดียว — ระยะการเจริญเติบโตมี 12 ระยะตายตัว
+
+- `cultivationStages` ใน `@/types` = 12 ระยะลำไย (เตรียมต้นหลังเก็บเกี่ยว → ก่อนเก็บ)
+- `stageIdByName` map ชื่อระยะ → `crop_stages.id` (`stage_01`..`stage_12`)
+- `stagePlaybook` ใน `@/lib/agronomy` มี 12 entry ใช้ SKU จริงจาก catalog ลำไย
+  (`HRM-AMINO`, `FRT-1500`, `CHL-KCLO3`, `FRT-105217`, `POL-DIAMOND`, `BIO-SKIN` ฯลฯ)
+- `LONGAN_CYCLE_DAYS` = ผลรวม `stageDurationDays` (332 วัน) ใช้คำนวณ progress
+- แหล่งคำแนะนำมี 2 ทาง: client-side (`stagePlaybook` คิดตามไร่) และ DB (`stage_products` ตาม sequence)
+- ชื่อระยะในโค้ดต้องตรงกับ `crop_stages.name` เป๊ะ (เช่น `ราดสาร` ไม่ใช่ `ราดสาร (สารควบคุมการออกดอก)`)
+
 ## หมายเหตุ
 
 - warning `vite-tsconfig-paths` มาจาก `@lovable.dev/vite-tanstack-config` — ไม่กระทบการทำงาน ปิดไม่ได้จาก user config

@@ -55,26 +55,107 @@ export interface Customer {
 }
 
 // --- Cultivation (แปลงเพาะปลูก) ---
+//
+// โครงสร้างรองรับหลายพืช แต่ตอนนี้มีตารางโปรแกรมดูแลของ "ลำไย" พืชเดียว
+// เมื่อจะเพิ่มพืชใหม่ (ทุเรียน มังคุด เงาะ) ให้ทำ 3 อย่าง:
+//   1. เพิ่มรายการระยะของพืชนั้น (เช่น durianStages) ไว้ในไฟล์นี้
+//   2. เพิ่ม entry ใน `cropPrograms` พร้อมตั้ง ready: true
+//   3. เพิ่ม playbook ของพืชนั้นใน @/lib/agronomy และ seed crop_stages/stage_products ใน Supabase
 
-export const cultivationStages = [
-  "เตรียมดิน",
-  "ปลูก",
-  "ดูแล/บำรุง",
-  "ออกดอก/ติดผล",
-  "เก็บเกี่ยว",
+/** ระยะการดูแลลำไย 12 ระยะ (ตามตารางโปรแกรมของร้าน) */
+export const longanStages = [
+  "เตรียมต้นหลังเก็บเกี่ยว",
+  "แตกใบอ่อน ใบแรก",
+  "แตกใบอ่อน ใบสอง",
+  "ราดสาร",
+  "เปิดตาดอก",
+  "ยืดช่อดอก",
+  "บำรุงช่อดอก",
+  "ดอกบาน",
+  "ลูกเล็ก",
+  "ลูกมะเขือพวง",
+  "ลูกแก้ว",
+  "ก่อนเก็บ",
 ] as const;
 
+/** ระยะที่ระบบใช้งานอยู่ — ตอนนี้เท่ากับของลำไย เพราะมีโปรแกรมเดียว */
+export const cultivationStages = longanStages;
+
 export type CultivationStage = (typeof cultivationStages)[number];
+
+/** โปรแกรมการดูแลของแต่ละพืช — ใช้เป็นทะเบียนกลางสำหรับขยายพืชในอนาคต */
+export interface CropProgram {
+  /** รหัสภายใน เช่น "longan" */
+  id: string;
+  /** ชื่อพืชที่บันทึกลง cultivations.crop และใช้เป็น crop_stages.crop_type */
+  name: string;
+  /** ระยะทั้งหมดของพืชนี้ (ว่าง = ยังไม่มีตารางดูแล) */
+  stages: readonly string[];
+  /** พร้อมใช้งานจริงหรือยัง — false = ยังทำตารางดูแลไม่เสร็จ */
+  ready: boolean;
+}
+
+export const cropPrograms: readonly CropProgram[] = [
+  { id: "longan", name: "ลำไย", stages: longanStages, ready: true },
+  { id: "durian", name: "ทุเรียน", stages: [], ready: false },
+  { id: "mangosteen", name: "มังคุด", stages: [], ready: false },
+  { id: "rambutan", name: "เงาะ", stages: [], ready: false },
+];
+
+/** พืชที่เลือกได้จริงในฟอร์ม (มีตารางดูแลแล้ว) */
+export const readyCropPrograms = cropPrograms.filter((c) => c.ready);
+
+/** พืชเริ่มต้นของแปลงใหม่ */
+export const DEFAULT_CROP = "ลำไย";
+
+/** รหัสระยะในตาราง crop_stages ของแต่ละชื่อระยะ */
+export const stageIdByName: Record<CultivationStage, string> = {
+  เตรียมต้นหลังเก็บเกี่ยว: "stage_01",
+  "แตกใบอ่อน ใบแรก": "stage_02",
+  "แตกใบอ่อน ใบสอง": "stage_03",
+  ราดสาร: "stage_04",
+  เปิดตาดอก: "stage_05",
+  ยืดช่อดอก: "stage_06",
+  บำรุงช่อดอก: "stage_07",
+  ดอกบาน: "stage_08",
+  ลูกเล็ก: "stage_09",
+  ลูกมะเขือพวง: "stage_10",
+  ลูกแก้ว: "stage_11",
+  ก่อนเก็บ: "stage_12",
+};
+
+/** อีโมจิประจำระยะ ใช้ให้ตรงกับ crop_stages.emoji */
+export const stageEmoji: Record<CultivationStage, string> = {
+  เตรียมต้นหลังเก็บเกี่ยว: "🌱",
+  "แตกใบอ่อน ใบแรก": "🌿",
+  "แตกใบอ่อน ใบสอง": "🍃",
+  ราดสาร: "💀",
+  เปิดตาดอก: "🌸",
+  ยืดช่อดอก: "🌺",
+  บำรุงช่อดอก: "🌷",
+  ดอกบาน: "🌼",
+  ลูกเล็ก: "🍒",
+  ลูกมะเขือพวง: "🍊",
+  ลูกแก้ว: "🍏",
+  ก่อนเก็บ: "👍",
+};
 
 export const stageTone: Record<
   CultivationStage,
   "neutral" | "info" | "success" | "warning" | "danger"
 > = {
-  เตรียมดิน: "neutral",
-  ปลูก: "info",
-  "ดูแล/บำรุง": "success",
-  "ออกดอก/ติดผล": "warning",
-  เก็บเกี่ยว: "danger",
+  เตรียมต้นหลังเก็บเกี่ยว: "neutral",
+  "แตกใบอ่อน ใบแรก": "success",
+  "แตกใบอ่อน ใบสอง": "success",
+  ราดสาร: "danger",
+  เปิดตาดอก: "warning",
+  ยืดช่อดอก: "warning",
+  บำรุงช่อดอก: "warning",
+  ดอกบาน: "warning",
+  ลูกเล็ก: "info",
+  ลูกมะเขือพวง: "info",
+  ลูกแก้ว: "info",
+  ก่อนเก็บ: "danger",
 };
 
 export interface Cultivation {

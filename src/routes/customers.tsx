@@ -39,7 +39,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { currency } from "@/lib/format";
-import { cultivationStages, stageTone } from "@/types";
+import {
+  cultivationStages,
+  stageEmoji,
+  stageIdByName,
+  stageTone,
+  readyCropPrograms,
+  DEFAULT_CROP,
+} from "@/types";
 import type {
   Cultivation,
   CultivationStage,
@@ -121,56 +128,13 @@ const tierTone: Record<string, string> = {
   Bronze: "bg-accent text-accent-foreground",
 };
 
-const longanStages = [
-  "เตรียมต้นหลังเก็บเกี่ยว",
-  "แตกใบอ่อน ใบแรก",
-  "แตกใบอ่อน ใบสอง",
-  "ราดสาร",
-  "เปิดตาดอก",
-  "ยืดช่อดอก",
-  "บำรุงช่อดอก",
-  "ดอกบาน",
-  "ลูกเล็ก",
-  "ลูกมะเขือพวง",
-  "ลูกแก้ว",
-  "ก่อนเก็บ",
-] as const;
-
-const longanStageIdByName: Record<(typeof longanStages)[number], string> = {
-  เตรียมต้นหลังเก็บเกี่ยว: "stage_01",
-  "แตกใบอ่อน ใบแรก": "stage_02",
-  "แตกใบอ่อน ใบสอง": "stage_03",
-  ราดสาร: "stage_04",
-  เปิดตาดอก: "stage_05",
-  ยืดช่อดอก: "stage_06",
-  บำรุงช่อดอก: "stage_07",
-  ดอกบาน: "stage_08",
-  ลูกเล็ก: "stage_09",
-  ลูกมะเขือพวง: "stage_10",
-  ลูกแก้ว: "stage_11",
-  ก่อนเก็บ: "stage_12",
-};
-
-const stageOrder = [...cultivationStages, ...longanStages];
-const isLonganCrop = (crop: string) => crop.includes("ลำไย");
-const isLonganStageName = (stageName: string): stageName is (typeof longanStages)[number] =>
-  longanStages.includes(stageName as (typeof longanStages)[number]);
 const stageOrderIndex = (stageName: string) => {
-  const idx = stageOrder.indexOf(stageName as (typeof stageOrder)[number]);
+  const idx = cultivationStages.indexOf(stageName as CultivationStage);
   return idx === -1 ? 999 : idx;
 };
 
-function toneForStage(stageName: string) {
-  const base = stageTone[stageName as CultivationStage];
-  if (base) return base;
-  if (stageName.includes("เตรียม")) return "neutral";
-  if (stageName.includes("ดอก")) return "warning";
-  if (stageName.includes("เก็บ")) return "danger";
-  return "info";
-}
-
 function stageBadgeClass(stageName: string) {
-  const tone = toneForStage(stageName);
+  const tone = stageTone[stageName as CultivationStage] ?? "neutral";
   if (tone === "neutral") return "bg-muted text-muted-foreground border-border";
   if (tone === "info") return "bg-info/12 text-info border-info/25";
   if (tone === "success") return "bg-success/12 text-success border-success/25";
@@ -371,19 +335,18 @@ function CrmPage() {
     };
   }, [nextRounds]);
 
-  const longanRecoByCultivation = useMemo(
+  /** ข้อมูลรอบถัดไป + สินค้าที่ผูกกับระยะจริงในฐานข้อมูล (แยกตามแปลง) */
+  const stageRecoByCultivation = useMemo(
     () =>
-      cultivations
-        .filter((cul) => isLonganCrop(cul.crop))
-        .map((cul) => {
-          const nextRound = nextRoundByCultivation.get(cul.id);
-          const items = nextRoundProducts[cul.id] ?? [];
-          return { cultivation: cul, nextRound, items };
-        }),
+      cultivations.map((cul) => ({
+        cultivation: cul,
+        nextRound: nextRoundByCultivation.get(cul.id),
+        items: nextRoundProducts[cul.id] ?? [],
+      })),
     [cultivations, nextRoundByCultivation, nextRoundProducts],
   );
 
-  const hasAnyRecommendation = recommendations.length > 0 || longanRecoByCultivation.length > 0;
+  const hasAnyRecommendation = recommendations.length > 0 || stageRecoByCultivation.length > 0;
 
   const printQuote = () => {
     if (recommendations.length === 0) {
@@ -512,7 +475,7 @@ function CrmPage() {
                 className="w-full"
                 options={[
                   { value: "all", label: "ทุกช่วง" },
-                  ...stageOrder.map((s) => ({ value: s, label: s })),
+                  ...cultivationStages.map((s) => ({ value: s, label: s })),
                 ]}
               />
             </div>
@@ -733,8 +696,7 @@ function CrmPage() {
                   {/* รายการแปลงเพาะปลูก */}
                   <div className="space-y-2">
                     {cultivations.map((cul) => {
-                      const isLongan = isLonganCrop(cul.crop);
-                      const prog = isLongan ? null : stageProgress(cul);
+                      const prog = stageProgress(cul);
                       const nextRoundInfo = nextRoundByCultivation.get(cul.id);
                       return (
                         <div key={cul.id} className="rounded-xl border p-4">
@@ -815,102 +777,80 @@ function CrmPage() {
                             </div>
                           </div>
 
-                          {/* ความคืบหน้ารอบการปลูก */}
+                          {/* ความคืบหน้ารอบการดูแล + รอบถัดไปจากโปรแกรมลำไย */}
                           <div className="mt-3 border-t pt-3">
-                            {isLongan ? (
-                              nextRoundInfo ? (
-                                <p className="mt-1 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                                  <Clock className="mt-px size-3 shrink-0" />
-                                  <span>
-                                    รอบถัดไป{" "}
-                                    <span className="font-semibold text-foreground">
-                                      {nextRoundInfo.nextEmoji} {nextRoundInfo.nextStageName}
-                                    </span>
-                                    {typeof nextRoundInfo.daysUntilNext === "number" &&
-                                      (nextRoundInfo.daysUntilNext < 0 ? (
-                                        <>
-                                          {" "}
-                                          — เลยกำหนด{" "}
-                                          <span className="font-semibold text-destructive">
-                                            {Math.abs(nextRoundInfo.daysUntilNext)} วัน
-                                          </span>
-                                        </>
-                                      ) : (
-                                        <>
-                                          {" "}
-                                          — อีก{" "}
-                                          <span className="font-semibold text-foreground">
-                                            {nextRoundInfo.daysUntilNext} วัน
-                                          </span>
-                                        </>
-                                      ))}
+                            <div className="flex items-center justify-between gap-2 text-[11px]">
+                              <span className="text-muted-foreground">
+                                ผ่านมา {Math.max(0, prog.daysSincePlanted)} / {prog.cycleDays} วัน
+                              </span>
+                              <span className="font-semibold tabular-nums">
+                                {prog.progressPct}%
+                              </span>
+                            </div>
+                            <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full rounded-full bg-primary transition-all"
+                                style={{ width: `${prog.progressPct}%` }}
+                              />
+                            </div>
+
+                            {nextRoundInfo ? (
+                              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                <Clock className="mt-px size-3 shrink-0" />
+                                <span>
+                                  รอบถัดไป{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {nextRoundInfo.nextEmoji} {nextRoundInfo.nextStageName}
                                   </span>
-                                </p>
-                              ) : (
-                                <p className="mt-1 flex items-start gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
-                                  <AlertTriangle className="mt-px size-3 shrink-0" />
-                                  <span>
-                                    ยังไม่มีข้อมูลรอบถัดไปของลำไย (ยังไม่ผูก
-                                    stage_id/ประวัติการดูแล)
-                                  </span>
-                                </p>
-                              )
-                            ) : (
-                              <>
-                                {prog && (
-                                  <>
-                                    <div className="flex items-center justify-between gap-2 text-[11px]">
-                                      <span className="text-muted-foreground">
-                                        ผ่านมา {Math.max(0, prog.daysSincePlanted)} /{" "}
-                                        {prog.cycleDays} วัน
-                                      </span>
-                                      <span className="font-semibold tabular-nums">
-                                        {prog.progressPct}%
-                                      </span>
-                                    </div>
-                                    <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-muted">
-                                      <div
-                                        className="h-full rounded-full bg-primary transition-all"
-                                        style={{ width: `${prog.progressPct}%` }}
-                                      />
-                                    </div>
-                                    {prog.isBehindSchedule ? (
-                                      <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
-                                        <AlertTriangle className="mt-px size-3 shrink-0" />
-                                        <span>
-                                          ตามปฏิทินควรอยู่ช่วง{" "}
-                                          <span className="font-semibold">
-                                            {prog.expectedStage}
-                                          </span>{" "}
-                                          แล้ว — ข้อมูลอาจไม่อัปเดต ควรโทรเช็กและเสนอสินค้าช่วงนี้
+                                  {typeof nextRoundInfo.daysUntilNext === "number" &&
+                                    (nextRoundInfo.daysUntilNext < 0 ? (
+                                      <>
+                                        {" "}
+                                        — เลยกำหนด{" "}
+                                        <span className="font-semibold text-destructive">
+                                          {Math.abs(nextRoundInfo.daysUntilNext)} วัน
                                         </span>
-                                      </p>
-                                    ) : prog.nextStage ? (
-                                      <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                                        <Clock className="mt-px size-3 shrink-0" />
-                                        <span>
-                                          อีก{" "}
-                                          <span className="font-semibold text-foreground">
-                                            {prog.daysToNextStage} วัน
-                                          </span>{" "}
-                                          จะเข้าช่วง{" "}
-                                          <span className="font-semibold text-foreground">
-                                            {prog.nextStage}
-                                          </span>{" "}
-                                          — เตรียมเสนอสินค้าล่วงหน้าได้
-                                        </span>
-                                      </p>
+                                      </>
                                     ) : (
-                                      <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
-                                        <TrendingUp className="mt-px size-3 shrink-0" />
-                                        <span>
-                                          ครบรอบการปลูกแล้ว — เสนอสินค้าเตรียมดินรอบถัดไปได้
+                                      <>
+                                        {" "}
+                                        — อีก{" "}
+                                        <span className="font-semibold text-foreground">
+                                          {nextRoundInfo.daysUntilNext} วัน
                                         </span>
-                                      </p>
-                                    )}
-                                  </>
-                                )}
-                              </>
+                                      </>
+                                    ))}
+                                </span>
+                              </p>
+                            ) : prog.isBehindSchedule ? (
+                              <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-warning/10 px-2 py-1.5 text-[11px] text-warning">
+                                <AlertTriangle className="mt-px size-3 shrink-0" />
+                                <span>
+                                  ตามปฏิทินควรอยู่ระยะ{" "}
+                                  <span className="font-semibold">{prog.expectedStage}</span> แล้ว —
+                                  ข้อมูลอาจไม่อัปเดต ควรโทรเช็กและเสนอสินค้าระยะนี้
+                                </span>
+                              </p>
+                            ) : prog.nextStage ? (
+                              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                <Clock className="mt-px size-3 shrink-0" />
+                                <span>
+                                  อีก{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {prog.daysToNextStage} วัน
+                                  </span>{" "}
+                                  จะเข้าระยะ{" "}
+                                  <span className="font-semibold text-foreground">
+                                    {prog.nextStage}
+                                  </span>{" "}
+                                  — เตรียมเสนอสินค้าล่วงหน้าได้
+                                </span>
+                              </p>
+                            ) : (
+                              <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+                                <TrendingUp className="mt-px size-3 shrink-0" />
+                                <span>ครบรอบแล้ว — เสนอชุดเตรียมต้นหลังเก็บเกี่ยวรอบถัดไปได้</span>
+                              </p>
                             )}
                           </div>
                         </div>
@@ -1170,16 +1110,16 @@ function CrmPage() {
                     );
                   })}
 
-                  {longanRecoByCultivation.length > 0 && (
+                  {stageRecoByCultivation.length > 0 && (
                     <div className="space-y-2">
                       <div className="rounded-xl border bg-muted/30 px-3 py-2">
-                        <p className="text-sm font-semibold">คำแนะนำสำหรับลำไย (ตามระยะจริง)</p>
+                        <p className="text-sm font-semibold">คำแนะนำตามระยะจริงในฐานข้อมูล</p>
                         <p className="text-xs text-muted-foreground">
-                          อ้างอิงจากโปรแกรม 12 ระยะ + รอบถัดไปของแต่ละแปลง
+                          อ้างอิงโปรแกรมดูแลลำไย 12 ระยะ + รอบถัดไปของแต่ละแปลง
                         </p>
                       </div>
-                      {longanRecoByCultivation.map(({ cultivation, nextRound, items }) => (
-                        <div key={`longan-${cultivation.id}`} className="rounded-xl border">
+                      {stageRecoByCultivation.map(({ cultivation, nextRound, items }) => (
+                        <div key={`stage-${cultivation.id}`} className="rounded-xl border">
                           <header className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
                             <Sprout className="size-4 shrink-0 text-primary" />
                             <span className="text-sm font-semibold">{cultivation.crop}</span>
@@ -1821,28 +1761,7 @@ function SellSheet({
 // CultivationForm — เพิ่ม/แก้ไขแปลงเพาะปลูก
 // ============================================================
 
-const commonCrops = [
-  "ข้าว",
-  "ข้าวโพด",
-  "อ้อย",
-  "มันสำปะหลัง",
-  "ยางพารา",
-  "ปาล์มน้ำมัน",
-  "ส้ม",
-  "มะม่วง",
-  "ทุเรียน",
-  "ลำไย",
-  "ลิ้นจี่",
-  "พริก",
-  "กระเทียม",
-  "หอมหัวใหญ่",
-  "ผักกาด",
-  "คะน้า",
-  "บวบ",
-  "แตงกวา",
-  "แตงโม",
-  "ฟักทอง",
-];
+const DEFAULT_STAGE: CultivationStage = cultivationStages[0];
 
 function CultivationForm({
   open,
@@ -1858,8 +1777,8 @@ function CultivationForm({
   onSaved: () => void;
 }) {
   const isEdit = !!editTarget;
-  const [crop, setCrop] = useState("");
-  const [stage, setStage] = useState<string>("เตรียมดิน");
+  const [crop, setCrop] = useState(DEFAULT_CROP);
+  const [stage, setStage] = useState<CultivationStage>(DEFAULT_STAGE);
   const [area, setArea] = useState("1");
   const [location, setLocation] = useState("");
   const [plantedDate, setPlantedDate] = useState("");
@@ -1879,8 +1798,8 @@ function CultivationForm({
         setExpectedHarvest(editTarget.expectedHarvest);
         setNote(editTarget.note ?? "");
       } else {
-        setCrop("");
-        setStage("เตรียมดิน");
+        setCrop(DEFAULT_CROP);
+        setStage(DEFAULT_STAGE);
         setArea("1");
         setLocation("");
         setPlantedDate(new Date().toISOString().slice(0, 10));
@@ -1889,15 +1808,6 @@ function CultivationForm({
       }
     }
   }, [open, editTarget]);
-
-  const stageOptions: readonly string[] = isLonganCrop(crop) ? longanStages : cultivationStages;
-
-  useEffect(() => {
-    if (!open) return;
-    if (!stageOptions.includes(stage)) {
-      setStage(stageOptions[0] ?? "เตรียมดิน");
-    }
-  }, [open, stage, stageOptions]);
 
   const submit = async () => {
     if (!crop.trim()) {
@@ -1919,13 +1829,13 @@ function CultivationForm({
       if (isEdit && editTarget) {
         await cultivationsApi.update(editTarget.id, {
           crop: crop.trim(),
-          stage: stage as CultivationStage,
+          stage,
           area: areaNum,
           location: location.trim(),
           plantedDate,
           expectedHarvest,
           note: note.trim() || undefined,
-          stageId: isLonganStageName(stage) ? longanStageIdByName[stage] : undefined,
+          stageId: stageIdByName[stage],
           currentSequence: 0,
         });
         toast.success(`แก้ไขแปลง ${crop.trim()} แล้ว`);
@@ -1934,13 +1844,13 @@ function CultivationForm({
           id: `cul-${Date.now()}`,
           customerId,
           crop: crop.trim(),
-          stage: stage as CultivationStage,
+          stage,
           area: areaNum,
           location: location.trim(),
           plantedDate,
           expectedHarvest,
           note: note.trim() || undefined,
-          stageId: isLonganStageName(stage) ? longanStageIdByName[stage] : undefined,
+          stageId: stageIdByName[stage],
           currentSequence: 0,
         });
         toast.success(`เพิ่มแปลง ${crop.trim()} แล้ว`);
@@ -1971,30 +1881,30 @@ function CultivationForm({
           {/* พืช + ช่วงการปลูก */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">พืช *</Label>
+              <Label className="text-xs font-semibold">พืช (ลำไย) *</Label>
               <Input
                 value={crop}
                 onChange={(e) => setCrop(e.target.value)}
-                placeholder="เช่น ข้าว ข้าวโพด อ้อย"
+                placeholder="เช่น ลำไย อีดอ"
                 list="crop-list"
                 className="rounded-xl"
               />
               <datalist id="crop-list">
-                {commonCrops.map((c) => (
-                  <option key={c} value={c} />
+                {readyCropPrograms.map((c) => (
+                  <option key={c.id} value={c.name} />
                 ))}
               </datalist>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">ระยะการเจริญเติบโต</Label>
-              <Select value={stage} onValueChange={setStage}>
+              <Select value={stage} onValueChange={(v) => setStage(v as CultivationStage)}>
                 <SelectTrigger className="rounded-xl">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {stageOptions.map((s) => (
+                  {cultivationStages.map((s) => (
                     <SelectItem key={s} value={s}>
-                      {s}
+                      {stageEmoji[s]} {s}
                     </SelectItem>
                   ))}
                 </SelectContent>

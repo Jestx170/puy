@@ -12,7 +12,6 @@ import {
   QrCode,
   Building2,
   Printer,
-  Percent,
   ShoppingCart,
   Loader2,
 } from "lucide-react";
@@ -193,7 +192,7 @@ function PosPage() {
     );
 
   const subtotal = cart.reduce((s, l) => s + l.product.price * l.qty, 0);
-  const discountAmt = Math.round((subtotal * discount) / 100);
+  const discountAmt = Math.min(discount, subtotal);
   const total = subtotal - discountAmt;
 
   const printCart = () => {
@@ -218,7 +217,6 @@ function PosPage() {
         price: l.product.price,
       })),
       subtotal,
-      discountPct: discount,
       discountAmt: discountAmt,
       total,
       payment: methodLabel,
@@ -570,15 +568,14 @@ function CartPanel({
 
       <div className="space-y-3 border-t p-3">
         <div className="flex items-center gap-2">
-          <Percent className="size-4 shrink-0 text-muted-foreground" />
+          <Banknote className="size-4 shrink-0 text-muted-foreground" />
           <Input
             type="number"
             min={0}
-            max={100}
-            value={discount}
+            value={discount || ""}
             onChange={(e) => onDiscount(Number(e.target.value) || 0)}
             className="h-8 rounded-lg text-xs"
-            placeholder="ส่วนลด %"
+            placeholder="ส่วนลด (บาท)"
           />
           <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
             -{currency(discountAmt)}

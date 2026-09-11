@@ -217,10 +217,10 @@ create trigger trg_customers_updated
 create table if not exists public.cultivations (
   id               text primary key,
   customer_id      text not null references public.customers(id) on delete cascade,
-  crop             text not null,
-  stage            text not null default 'เตรียมดิน'
+  crop             text not null default 'ลำไย',
+  -- ระบบรองรับลำไยเท่านั้น — ระยะทั้ง 12 ตามโปรแกรมดูแลลำไย
+  stage            text not null default 'เตรียมต้นหลังเก็บเกี่ยว'
                    check (stage in (
-                     'เตรียมดิน','ปลูก','ดูแล/บำรุง','ออกดอก/ติดผล','เก็บเกี่ยว',
                      'เตรียมต้นหลังเก็บเกี่ยว',
                      'แตกใบอ่อน ใบแรก',
                      'แตกใบอ่อน ใบสอง',

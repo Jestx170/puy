@@ -41,7 +41,7 @@ import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Progress } from "@/components/ui/progress";
 import { compactCurrency, currency, numberFmt } from "@/lib/format";
-import { findFollowUps, forecastDemand } from "@/lib/agronomy";
+import { findFollowUps, forecastDemand, cultivationsByStage } from "@/lib/agronomy";
 import {
   dashboardApi,
   type BestCustomer,
@@ -52,9 +52,10 @@ import {
 import { ordersApi } from "@/lib/api/orders";
 import { activitiesApi } from "@/lib/api/activities";
 import { notificationsApi } from "@/lib/api/notifications";
-import { customersApi } from "@/lib/api/customers";
+import { customersApi, cultivationsApi } from "@/lib/api/customers";
 import { productsApi } from "@/lib/api/products";
-import type { Product, Customer } from "@/types";
+import type { Product, Customer, CultivationStage } from "@/types";
+import { stageEmoji } from "@/types";
 import { exportToCSV } from "@/lib/export";
 
 export const Route = createFileRoute("/")({
@@ -177,6 +178,12 @@ function Dashboard() {
     queryFn: () => productsApi.list(),
   });
 
+  // ดึงแปลงเพาะปลูกทั้งหมดเพื่อสรุปว่าลูกค้าอยู่ในระยะไหน
+  const { data: allCultivations = [] } = useQuery({
+    queryKey: ["all-cultivations"],
+    queryFn: () => cultivationsApi.listAll(),
+  });
+
   // วิเคราะห์การเพาะปลูก: ลูกค้าที่ควรติดต่อ + พยากรณ์ความต้องการสินค้า
   const followUps = useMemo(
     () => (customers.length && products.length ? findFollowUps(customers, products, 21) : []),
@@ -189,6 +196,16 @@ function Dashboard() {
   const opportunityTotal = followUps.reduce((s, f) => s + f.opportunity, 0);
   const demandShortfall = demand.filter((d) => d.shortfall > 0);
 
+  // สรุปแปลงเพาะปลูกแยกตามระยะ — ดึงจากข้อมูลจริงใน cultivations table
+  const stageDist = useMemo(() => cultivationsByStage(allCultivations), [allCultivations]);
+  const totalPlots = allCultivations.length;
+  const topStage =
+    stageDist.reduce(
+      (best, s) => (s.plots > (best?.plots ?? 0) ? s : best),
+      stageDist[0] as { stage: CultivationStage; plots: number; area: number } | undefined,
+    ) ?? stageDist[0];
+  const totalArea = allCultivations.reduce((s, c) => s + c.area, 0);
+
   const profitData = profitView === "day" ? profitByDay : profitByMonth;
   const monthMargin =
     stats && stats.monthSales > 0 ? Math.round((stats.monthProfit / stats.monthSales) * 100) : 0;
@@ -199,7 +216,7 @@ function Dashboard() {
     <div className="space-y-6 p-4 sm:p-6">
       <PageHeader
         title="แดชบอร์ดผู้บริหาร"
-        description="ภาพรวมผลประกอบการวันนี้ · อัปเดตล่าสุด 5 นาทีที่แล้ว"
+        description="ภาพรวมผลประกอบการวันนี้"
         crumbs={[{ label: "แดชบอร์ด" }]}
         actions={
           <>
@@ -240,28 +257,24 @@ function Dashboard() {
         <StatCard
           label="ยอดขายวันนี้"
           value={currency(stats?.todaySales ?? 0)}
-          {...(stats ? { delta: 12.4 } : {})}
-          hint="เทียบเมื่อวาน"
+          hint={stats ? `${stats.todayOrders} บิล` : "—"}
           icon={Banknote}
         />
         <StatCard
           label="รายได้เดือนนี้"
           value={compactCurrency(stats?.monthSales ?? 0)}
-          {...(stats ? { delta: 8.1 } : {})}
-          hint="เป้าหมายรายเดือน"
+          hint={stats ? `${stats.pendingOrders} บิลรอดำเนินการ` : "—"}
           icon={Wallet}
         />
         <StatCard
           label="กำไรวันนี้"
           value={currency(stats?.todayProfit ?? 0)}
-          {...(todayMargin > 0 ? { delta: todayMargin } : {})}
           hint={todayMargin > 0 ? `มาร์จิน ${todayMargin}%` : "—"}
           icon={PiggyBank}
         />
         <StatCard
           label="กำไรเดือนนี้"
           value={compactCurrency(stats?.monthProfit ?? 0)}
-          {...(monthMargin > 0 ? { delta: monthMargin } : {})}
           hint={
             monthMargin > 0
               ? `มาร์จิน ${monthMargin}% · ต้นทุน ${compactCurrency(stats?.monthCogs ?? 0)}`
@@ -275,15 +288,13 @@ function Dashboard() {
         <StatCard
           label="ลูกค้าทั้งหมด"
           value={numberFmt(stats?.totalCustomers ?? 0)}
-          {...(stats ? { delta: 3.2 } : {})}
-          hint="ทั้งระบบ"
+          hint={totalPlots > 0 ? `${totalPlots} แปลงเพาะปลูก` : "ทั้งระบบ"}
           icon={Users}
           tone="info"
         />
         <StatCard
           label="คำสั่งซื้อวันนี้"
           value={String(stats?.todayOrders ?? 0)}
-          {...(stats ? { delta: -2.6 } : {})}
           hint="จากการขายทุกช่องทาง"
           icon={ShoppingCart}
         />
@@ -630,6 +641,59 @@ function Dashboard() {
           )}
         </Widget>
       </div>
+
+      {/* สรุปแปลงเพาะปลูกตามระยะการเจริญเติบโต */}
+      <Widget
+        title="แปลงเพาะปลูกตามระยะ"
+        subtitle={
+          totalPlots > 0
+            ? `${totalPlots} แปลง · ${totalArea.toFixed(1)} ไร่ · ส่วนมากอยู่ระยะ ${topStage?.stage ?? "—"}`
+            : "ยังไม่มีแปลงเพาะปลูกในระบบ"
+        }
+        action={
+          <Button variant="ghost" size="sm" className="rounded-lg text-xs" asChild>
+            <Link to="/customers">
+              ดูลูกค้า <ArrowRight className="size-3.5" />
+            </Link>
+          </Button>
+        }
+      >
+        {totalPlots === 0 ? (
+          <p className="px-4 py-8 text-center text-sm text-muted-foreground">
+            ยังไม่มีข้อมูลแปลงเพาะปลูก
+          </p>
+        ) : (
+          <div className="grid gap-x-6 gap-y-2 p-4 sm:grid-cols-2 xl:grid-cols-3">
+            {stageDist.map((s) => {
+              const pct = totalPlots > 0 ? (s.plots / totalPlots) * 100 : 0;
+              const isTop = !!topStage && s.stage === topStage.stage && s.plots > 0;
+              return (
+                <div key={s.stage} className="flex items-center gap-2">
+                  <span className="w-6 shrink-0 text-center text-sm">{stageEmoji[s.stage]}</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-baseline justify-between gap-2">
+                      <span className="truncate text-xs font-medium">{s.stage}</span>
+                      <span
+                        className={`shrink-0 text-xs tabular-nums ${
+                          isTop ? "font-bold text-primary" : "text-muted-foreground"
+                        }`}
+                      >
+                        {s.plots} แปลง
+                      </span>
+                    </div>
+                    <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
+                      <div
+                        className={`h-full rounded-full ${isTop ? "bg-primary" : "bg-primary/40"}`}
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Widget>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Widget title="สินค้าขายดี" subtitle="เรียงตามจำนวนที่ขายได้เดือนนี้">

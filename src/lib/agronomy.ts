@@ -7,45 +7,58 @@
 import type { Cultivation, CultivationStage, Customer, Product } from "@/types";
 import { cultivationStages } from "@/types";
 
-/* ------------------------- 1) รอบการปลูกของแต่ละพืช ------------------------- */
-
-/** จำนวนวันจากปลูกถึงเก็บเกี่ยวของแต่ละพืช */
-export const cropCycleDays: Record<string, number> = {
-  "ข้าว กข.43": 110,
-  "ข้าว กข.49": 115,
-  ข้าวโพดหวาน: 75,
-  อ้อย: 300,
-  มันสำปะหลัง: 90,
-  ยางพารา: 1800,
-  ปาล์มน้ำมัน: 1080,
-  ถั่วเหลือง: 70,
-  พริก: 100,
-  มะเขือเทศ: 80,
-};
-
-/** ค่าเริ่มต้นถ้าไม่รู้จักพืชชนิดนั้น */
-const DEFAULT_CYCLE_DAYS = 100;
-
-export const cycleDaysFor = (crop: string) => cropCycleDays[crop] ?? DEFAULT_CYCLE_DAYS;
+/* ------------------------- 1) รอบการดูแลลำไย ------------------------- */
 
 /**
- * สัดส่วนของรอบการปลูกที่แต่ละช่วงกินเวลา (รวมกัน = 1)
- * ใช้คำนวณว่า ณ วันนี้แปลงควรอยู่ช่วงไหน และอีกกี่วันจะเข้าช่วงถัดไป
+ * จำนวนวันของแต่ละระยะ (ค่ากลางของช่วงในตารางโปรแกรมดูแลลำไย)
+ * ใช้คำนวณว่า ณ วันนี้แปลงควรอยู่ระยะไหน และอีกกี่วันจะเข้าระยะถัดไป
  */
-const stageShare: Record<CultivationStage, number> = {
-  เตรียมดิน: 0.08,
-  ปลูก: 0.1,
-  "ดูแล/บำรุง": 0.37,
-  "ออกดอก/ติดผล": 0.3,
-  เก็บเกี่ยว: 0.15,
+export const stageDurationDays: Record<CultivationStage, number> = {
+  เตรียมต้นหลังเก็บเกี่ยว: 52, // 45-60 วัน
+  "แตกใบอ่อน ใบแรก": 12, // 10-15 วัน
+  "แตกใบอ่อน ใบสอง": 25, // 20-30 วัน
+  ราดสาร: 10, // กรอบ 10 วัน
+  เปิดตาดอก: 12, // 10-14 วัน
+  ยืดช่อดอก: 12,
+  บำรุงช่อดอก: 12,
+  ดอกบาน: 12,
+  ลูกเล็ก: 60,
+  ลูกมะเขือพวง: 60,
+  ลูกแก้ว: 45,
+  ก่อนเก็บ: 20,
 };
 
-/** ขอบเขตสะสมของแต่ละช่วง เช่น ดูแล/บำรุง = 0.18 → 0.55 */
+/** ความถี่การพ่นของแต่ละระยะ (วัน/ครั้ง) — null = ทำครั้งเดียว/ตามสภาพต้น */
+export const stageFrequencyDays: Record<CultivationStage, number | null> = {
+  เตรียมต้นหลังเก็บเกี่ยว: 15,
+  "แตกใบอ่อน ใบแรก": null,
+  "แตกใบอ่อน ใบสอง": 7,
+  ราดสาร: 2,
+  เปิดตาดอก: 6,
+  ยืดช่อดอก: 6,
+  บำรุงช่อดอก: 6,
+  ดอกบาน: 6,
+  ลูกเล็ก: 12,
+  ลูกมะเขือพวง: 12,
+  ลูกแก้ว: 10,
+  ก่อนเก็บ: 9,
+};
+
+/** ความยาวรอบการดูแลลำไยทั้งรอบ (วัน) — รวมทุกระยะ */
+export const LONGAN_CYCLE_DAYS = cultivationStages.reduce(
+  (sum, stage) => sum + stageDurationDays[stage],
+  0,
+);
+
+/** ระบบนี้รองรับลำไยเท่านั้น จึงใช้รอบเดียวกับทุกแปลง */
+export const cycleDaysFor = (_crop?: string) => LONGAN_CYCLE_DAYS;
+
+/** ขอบเขตสะสมของแต่ละระยะ (สัดส่วน 0-1 ของรอบทั้งหมด) */
 const stageBounds = (() => {
   let acc = 0;
   return cultivationStages.map((stage) => {
     const start = acc;
-    acc += stageShare[stage];
+    acc += stageDurationDays[stage] / LONGAN_CYCLE_DAYS;
     return { stage, start, end: acc };
   });
 })();
@@ -65,109 +78,88 @@ export interface StageItem {
   reason: string;
 }
 
-/** คู่มือการขายตามช่วงการปลูก */
+/** คู่มือการขายตามระยะการดูแลลำไย (SKU ตรงกับ catalog ลำไยใน Supabase) */
 export const stagePlaybook: Record<CultivationStage, { advice: string; items: StageItem[] }> = {
-  เตรียมดิน: {
-    advice: "ช่วงปรับปรุงดินก่อนปลูก เน้นอินทรียวัตถุและกำจัดวัชพืชเดิม",
+  เตรียมต้นหลังเก็บเกี่ยว: {
+    advice: "ฟื้นต้นหลังตัดแต่งกิ่ง/เก็บผล พ่นทุก 15 วัน ประมาณ 3 ครั้ง เน้นดันใบ",
     items: [
-      {
-        sku: "ORG-CHK1",
-        ratePerRai: 2,
-        reason: "ปรับโครงสร้างดิน เพิ่มอินทรียวัตถุก่อนปลูก",
-      },
-      {
-        sku: "ORG-BIO25",
-        ratePerRai: 1.5,
-        reason: "เพิ่มจุลินทรีย์ดิน ช่วยรากเดินดีในระยะแรก",
-      },
-      {
-        sku: "PST-GLY1",
-        ratePerRai: 0.5,
-        reason: "กำจัดวัชพืชเดิมก่อนเตรียมแปลง",
-      },
+      { sku: "HRM-AMINO", ratePerRai: 0.25, reason: "สาหร่ายอะมิโน ฟื้นต้นหลังเก็บเกี่ยว" },
+      { sku: "FRT-1500", ratePerRai: 0.3, reason: "ตัวหน้าสูง 15-0-0 ดันใบชุดแรก" },
+      { sku: "FRT-301010", ratePerRai: 0.3, reason: "ตัวหน้าสูง 30-10-10 เร่งการแตกยอด" },
+      { sku: "FRT-302010", ratePerRai: 0.3, reason: "ตัวหน้าสูง 30-20-10 สลับสูตรกันดื้อ" },
     ],
   },
-  ปลูก: {
-    advice: "ช่วงลงกล้า/หยอดเมล็ด ต้องมีปุ๋ยรองพื้นและวัสดุเพาะ",
+  "แตกใบอ่อน ใบแรก": {
+    advice: "พ่น 1 ครั้งหลังใบเพสลาด เสริมธาตุรองและสูตรเสมอให้ใบสมบูรณ์",
     items: [
-      {
-        sku: "FRT-1515",
-        ratePerRai: 0.5,
-        reason: "ปุ๋ยรองพื้นสูตรเสมอ ให้ธาตุครบช่วงตั้งตัว",
-      },
-      {
-        sku: "FRT-1620",
-        ratePerRai: 0.4,
-        reason: "ฟอสฟอรัสสูง เร่งการแตกราก",
-      },
-      {
-        sku: "EQP-BAG100",
-        ratePerRai: null,
-        fixedQty: 1,
-        reason: "ถุงเพาะชำสำหรับเตรียมต้นกล้าสำรอง",
-      },
+      { sku: "NUT-MICRO", ratePerRai: 0.2, reason: "ธาตุอาหารรองเสริม ป้องกันใบขาดธาตุ" },
+      { sku: "FRT-212121", ratePerRai: 0.3, reason: "สูตรเสมอ 21-21-21 บำรุงใบชุดแรก" },
+      { sku: "FRT-202020", ratePerRai: 0.3, reason: "สูตรเสมอ 20-20-20 ใช้สลับได้" },
     ],
   },
-  "ดูแล/บำรุง": {
-    advice: "ช่วงเร่งการเจริญเติบโต ต้องคุมโรคแมลงและเสริมไนโตรเจน",
+  "แตกใบอ่อน ใบสอง": {
+    advice: "พ่นทุก 7 วัน 4 ครั้ง แต่ละครั้งสูตรไม่เหมือนกัน ปิดท้ายด้วยตัดไนโตรเจน",
     items: [
-      {
-        sku: "FRT-4600",
-        ratePerRai: 0.5,
-        reason: "ยูเรียเร่งใบและลำต้น ช่วงสร้างทรงพุ่ม",
-      },
-      {
-        sku: "PST-ABA5",
-        ratePerRai: 0.25,
-        reason: "คุมหนอนและเพลี้ยในระยะเจริญเติบโต",
-      },
-      {
-        sku: "PST-TRAP",
-        ratePerRai: 2,
-        reason: "กับดักเฝ้าระวังแมลง ลดการใช้สารเคมี",
-      },
+      { sku: "HRM-AMINO", ratePerRai: 0.25, reason: "ครั้งที่ 1: สาหร่ายอะมิโน + ตัวหน้าสูง" },
+      { sku: "FRT-301010", ratePerRai: 0.3, reason: "ครั้งที่ 1: ตัวหน้าสูง 30-10-10" },
+      { sku: "FRT-212121", ratePerRai: 0.3, reason: "ครั้งที่ 2: สูตรเสมอ 21-21-21" },
+      { sku: "FRT-42424", ratePerRai: 0.3, reason: "ครั้งที่ 3: ตัวหน้าต่ำ 4-24-24 คุมใบ" },
+      { sku: "MIN-MG", ratePerRai: 0.2, reason: "ครั้งที่ 4: แมกนีเซียม เพิ่มความเขียวเข้ม" },
+      { sku: "FRT-05234", ratePerRai: 0.25, reason: "ครั้งที่ 4: 0-52-34 ตัดไนโตรเจนสะสมอาหาร" },
     ],
   },
-  "ออกดอก/ติดผล": {
-    advice: "ช่วงชี้ผลผลิต ต้องเสริมธาตุรองและฮอร์โมนให้ติดผลดี",
+  ราดสาร: {
+    advice: "กรอบ 10 วัน — ทางใบ 3 ครั้ง (เว้น 1 เว้น 2) แล้วทางดินไม่เกิน 2 วันหลังครั้งสุดท้าย",
     items: [
-      {
-        sku: "FRT-WSF1",
-        ratePerRai: 0.2,
-        reason: "ปุ๋ยเกล็ดฉีดพ่นทางใบ ดูดซึมเร็วช่วงติดผล",
-      },
-      {
-        sku: "HRM-EGG1",
-        ratePerRai: 0.25,
-        reason: "ฮอร์โมนไข่ ช่วยขั้วเหนียว ลดดอกร่วง",
-      },
-      {
-        sku: "HRM-SEA5",
-        ratePerRai: 0.2,
-        reason: "สาหร่ายสกัด เพิ่มขนาดและคุณภาพผล",
-      },
+      { sku: "CHL-KCLO3", ratePerRai: 0.5, reason: "โพแทสเซียมคลอเรต ทางใบ ชักนำการออกดอก" },
+      { sku: "CHL-NACLO3", ratePerRai: 0.6, reason: "โซเดียมคลอเรต ใช้ทางใบและราดทางดิน" },
     ],
   },
-  เก็บเกี่ยว: {
-    advice: "ช่วงเก็บผลผลิต เตรียมอุปกรณ์และวางแผนปุ๋ยรอบถัดไป",
+  เปิดตาดอก: {
+    advice: "พ่นทุก 5-7 วัน ประมาณ 2 ครั้ง เปิดตาดอกให้สม่ำเสมอ",
     items: [
-      {
-        sku: "EQP-SPR20",
-        ratePerRai: null,
-        fixedQty: 1,
-        reason: "เครื่องพ่นยาสำรองไว้ใช้รอบถัดไป",
-      },
-      {
-        sku: "EQP-HOSE20",
-        ratePerRai: null,
-        fixedQty: 1,
-        reason: "สายยางเกษตรสำหรับให้น้ำรอบใหม่",
-      },
-      {
-        sku: "ORG-CHK1",
-        ratePerRai: 1,
-        reason: "จองปุ๋ยคอกล่วงหน้าเพื่อเตรียมดินรอบถัดไป",
-      },
+      { sku: "BLOOM-TIGER", ratePerRai: 0.2, reason: "เสือดอก กระตุ้นการเปิดตาดอก" },
+      { sku: "BLOOM-OPEN", ratePerRai: 0.2, reason: "ยาเปิดตาดอก ช่วยแทงช่อพร้อมกัน" },
+      { sku: "FRT-61236", ratePerRai: 0.3, reason: "6-12-36 สะสมโพแทสเซียมช่วงเปิดตา" },
+    ],
+  },
+  ยืดช่อดอก: {
+    advice: "พ่นทุก 5-7 วัน 2 ครั้ง ยืดช่อให้ยาวสม่ำเสมอ",
+    items: [{ sku: "FRT-105217", ratePerRai: 0.3, reason: "10-52-17 ยืดช่อดอก เพิ่มความสมบูรณ์" }],
+  },
+  บำรุงช่อดอก: {
+    advice: "พ่นทุก 5-7 วัน 2 ครั้ง ใช้สูตรเดียวกับยืดช่อดอก",
+    items: [{ sku: "FRT-105217", ratePerRai: 0.3, reason: "10-52-17 บำรุงช่อก่อนดอกบาน" }],
+  },
+  ดอกบาน: {
+    advice: "พ่นทุก 5-7 วัน 2 ครั้ง เน้นตัวผสมเกสรให้ติดผลดี",
+    items: [{ sku: "POL-DIAMOND", ratePerRai: 0.2, reason: "ไดมอนด์ ช่วยผสมเกสร เพิ่มการติดผล" }],
+  },
+  ลูกเล็ก: {
+    advice: "60 วัน พ่นทุก 10-15 วัน (4-6 ครั้ง) เร่งการเจริญเติบโตของผล",
+    items: [
+      { sku: "FRT-301010", ratePerRai: 0.3, reason: "ตัวหน้าสูง 30-10-10 เร่งขยายผล" },
+      { sku: "FRT-1500", ratePerRai: 0.25, reason: "15-0-0 เสริมไนโตรเจนช่วงลูกเล็ก" },
+    ],
+  },
+  ลูกมะเขือพวง: {
+    advice: "60 วัน พ่นทุก 10-15 วัน (4-6 ครั้ง) ใช้สูตรเสมอให้ผลโตสม่ำเสมอ",
+    items: [
+      { sku: "FRT-212121", ratePerRai: 0.3, reason: "สูตรเสมอ 21-21-21 ขยายขนาดผล" },
+      { sku: "FRT-202020", ratePerRai: 0.3, reason: "สูตรเสมอ 20-20-20 ใช้สลับได้" },
+    ],
+  },
+  ลูกแก้ว: {
+    advice: "45 วัน พ่นทุก 10 วัน (4 ครั้ง) เร่งความหวานและคุณภาพผล",
+    items: [
+      { sku: "FRT-131321", ratePerRai: 0.3, reason: "ตัวท้ายสูง 13-13-21 เพิ่มความหวาน" },
+      { sku: "FRT-82424", ratePerRai: 0.25, reason: "8-24-24 เสริมคุณภาพเนื้อผล" },
+    ],
+  },
+  ก่อนเก็บ: {
+    advice: "20 วันก่อนเก็บ พ่นทุก 8-10 วัน 2 ครั้ง ป้องกันโรคและขัดผิวผล",
+    items: [
+      { sku: "BIO-SKIN", ratePerRai: 0.25, reason: "เชื้อราตัวขัดผิว ผิวผลสวย ลดโรคก่อนเก็บ" },
     ],
   },
 };
@@ -312,6 +304,37 @@ export function recommendForCustomer(
 }
 
 /* -------------------- 5) ลูกค้าที่ควรติดต่อ (เข้าช่วงถัดไป) -------------------- */
+
+/** สรุปจำนวนแปลงเพาะปลูกแยกตามระยะ — สำหรับแดชบอร์ด */
+export interface StageDistribution {
+  stage: CultivationStage;
+  plots: number;
+  /** พื้นที่รวมของแปลงในระยะนี้ (ไร่) */
+  area: number;
+}
+
+/**
+ * นับแปลงเพาะปลูกแยกตามระยะ จากข้อมูลจริงที่ดึงจาก cultivations table
+ * ระยะที่ไม่มีแปลงจะถูกแสดงด้วย (plots: 0) เพื่อให้เห็นทั้ง 12 ระยะ
+ */
+export function cultivationsByStage(cultivations: Cultivation[]): StageDistribution[] {
+  const counts = new Map<CultivationStage, { plots: number; area: number }>();
+  for (const stage of cultivationStages) {
+    counts.set(stage, { plots: 0, area: 0 });
+  }
+  for (const cul of cultivations) {
+    const entry = counts.get(cul.stage);
+    if (entry) {
+      entry.plots += 1;
+      entry.area += cul.area;
+    }
+  }
+  return cultivationStages.map((stage) => ({
+    stage,
+    plots: counts.get(stage)?.plots ?? 0,
+    area: counts.get(stage)?.area ?? 0,
+  }));
+}
 
 export type FollowUpKind = "upcoming" | "overdue";
 
