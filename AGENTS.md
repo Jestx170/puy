@@ -96,8 +96,7 @@ src/
     └── use-mobile.tsx
 
 supabase/
-├── schema.sql               # SQL schema ทั้งหมด (ตาราง + views + RLS + seed)
-└── migration-phase2.sql     # migration: image_url, audit trail, RPC functions, CHECK constraints
+└── schema.sql               # SQL schema ทั้งหมด (ตาราง + views + RPCs + triggers + RLS + seed) — รันครั้งเดียว
 ```
 
 ## แนวทางการเขียนโค้ด
@@ -135,36 +134,25 @@ const { data: list = [], isLoading } = useQuery({
 ## Supabase
 
 - ตั้งค่าใน `.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-- รัน `supabase/schema.sql` ใน Supabase Dashboard → SQL Editor (ครั้งเดียว)
-- รัน `supabase/migration-phase2.sql` เพื่อเพิ่ม: `image_url`, `deleted_at`, audit trail
-  (`stock_before`/`stock_after`/`reference`), `CHECK stock >= 0`, RPC functions
-  (`create_sale_transaction`, `record_stock_movement`, `delete_product_safe`)
-- สร้าง storage bucket `product-images` (public, 5MB, image/* MIME types)
+- รัน `supabase/schema.sql` ใน Supabase Dashboard → SQL Editor (ครั้งเดียว รันซ้ำได้)
+- schema รวมทุกอย่าง: ตาราง, views, RPCs, triggers, RLS, storage bucket, seed data
+- RPC functions: `create_sale_transaction`, `record_stock_movement`, `delete_product_safe`,
+  `increment_promotion_used`, `record_care_atomic`, `notify_expiring_products`
 - RLS อนุญาต anon ทุกตาราง (single-user app)
 - trigger `calc_product_status` คำนวณ `products.status` จาก stock/min_stock อัตโนมัติ
+- trigger `recalc_warehouse_main` sync warehouses aggregate หลัง products เปลี่ยน
 - RPC `create_sale_transaction` — POS checkout แบบ atomic (order + items + stock + customer + activity)
 - RPC `record_stock_movement` — stock in/out/adjustment แบบ atomic + audit trail
 - RPC `delete_product_safe` — soft delete ถ้ามีประวัติขาย, hard delete ถ้าไม่มี
 
-### ลำดับการรัน migration (สำคัญ — ต้องเรียงตามนี้)
+### การรัน schema
 
 ```
-1. schema.sql                             # ตารางหลักทั้งหมด
-2. migration-phase2.sql                   # image_url, audit trail, RPC
-3. migration-storage-bucket.sql           # bucket product-images
-4. migration-cultivation-stages.sql       # crop_stages / stage_products / cultivation_schedules + view
-5. migration-longan-product-catalog.sql   # สินค้าลำไย 20 SKU + map เข้า 12 ระยะ
-6. migration-longan-only.sql              # บีบ constraint เหลือ 12 ระยะลำไย + แปลงข้อมูลเก่า
-7. migration-care-program-rounds.sql     # care_program_rounds/groups/options + RPC atomic + unique + nullable date
-8. migration-store-settings.sql           # store_settings (single row) — ข้อมูลร้านสำหรับใบเสร็จ
-9. migration-promotions.sql               # promotions table + RPC increment_promotion_used + seed
-10. mock-longan-demo.sql                   # (ทางเลือก) ข้อมูลเดโมสำหรับทดสอบ
+รัน supabase/schema.sql ครั้งเดียวใน Supabase Dashboard → SQL Editor (รันซ้ำได้, ใช้ on conflict do nothing)
 ```
 
-⚠️ `migration-care-program-rounds.sql` เป็น additive — รักษาข้อมูลเดิม
-แต่ทำให้ `cultivation_schedules.action_date` เป็น nullable และเพิ่ม unique constraint
-บน `(cultivation_id, stage_id, sequence)` เพื่อกัน duplicate completion
-**ห้ามรันกับฐานข้อมูลจริงจนกว่าจะอนุมัติขั้นตอนนี้แยกต่างหาก**
+schema.sql รวมทุกอย่างในไฟล์เดียว: ตาราง, indexes, views, RPCs, triggers, RLS, storage bucket, seed data
+ไม่ต้องรัน migration แยกหลายไฟล์อีกต่อไป
 
 ## โปรโมชัน (Promotions)
 

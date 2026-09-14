@@ -69,7 +69,6 @@ export function TopBar() {
   const [open, setOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const navigate = useNavigate();
-  const { logout, user } = useAuth();
   const qc = useQueryClient();
 
   const { data: notifications = [] } = useQuery({
@@ -287,46 +286,6 @@ export function TopBar() {
             </div>
           </PopoverContent>
         </Popover>
-
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button className="flex items-center gap-2 rounded-xl px-1.5 py-1 transition-colors hover:bg-muted">
-              <Avatar className="size-8">
-                <AvatarFallback className="bg-primary/10 text-xs font-semibold text-primary">
-                  A
-                </AvatarFallback>
-              </Avatar>
-              <div className="hidden min-w-0 text-left lg:block">
-                <p className="truncate text-xs font-semibold leading-tight">{user ?? "admin"}</p>
-                <p className="truncate text-[11px] text-muted-foreground">ผู้ดูแลระบบ</p>
-              </div>
-              <ChevronDown className="hidden size-3.5 text-muted-foreground lg:block" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56 rounded-xl">
-            <DropdownMenuLabel className="font-normal">
-              <p className="text-sm font-semibold">{user ?? "admin"}</p>
-              <p className="text-xs text-muted-foreground">admin@puithai.co.th</p>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem>
-              <UserRound className="size-4" /> โปรไฟล์ของฉัน
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => toast("การตั้งค่าจะพร้อมเร็ว ๆ นี้")}>
-              <Settings className="size-4" /> ตั้งค่าระบบ
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem
-              onSelect={() => {
-                logout();
-                toast.success("ออกจากระบบเรียบร้อย");
-                navigate({ to: "/login" });
-              }}
-            >
-              <LogOut className="size-4" /> ออกจากระบบ
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
       </div>
 
       <CommandDialog open={open} onOpenChange={setOpen}>

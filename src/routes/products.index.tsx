@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid, List, Plus, Download, Package, Pencil, Loader2 } from "lucide-react";
@@ -40,10 +40,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { productCategories as categories } from "@/lib/constants";
 import { currency } from "@/lib/format";
 import type { Product, ProductStatus } from "@/types";
 import { productsApi } from "@/lib/api/products";
+import { categoriesApi } from "@/lib/api/categories";
+import { useCategories } from "@/hooks/useCategories";
+import { supabase } from "@/lib/supabase";
 import { exportToCSV } from "@/lib/export";
 import { uploadProductImage } from "@/lib/storage";
 import { ProductImage } from "@/components/common/ProductImage";
@@ -91,6 +93,7 @@ function ProductsPage() {
   const [view, setView] = useState<"grid" | "table">("grid");
   const [addOpen, setAddOpen] = useState(false);
   const qc = useQueryClient();
+  const { categories } = useCategories();
 
   // ดึงสินค้าจาก Supabase
   const { data: list = [], isLoading } = useQuery({
@@ -118,8 +121,36 @@ function ProductsPage() {
 
   const addProduct = async (p: Product) => {
     try {
+      // สร้างสินค้าพร้อมสต็อกเริ่มต้น
       const created = await productsApi.create(p);
       qc.setQueryData<Product[]>(["products"], (prev) => [created, ...(prev ?? [])]);
+
+      // ถ้ามีสต็อกเริ่มต้น > 0 ให้ insert stock_movement ตรงๆ (ไม่ผ่าน RPC เพื่อลดความเสี่ยง)
+      if (p.stock > 0) {
+        try {
+          await supabase.from("stock_movements").insert({
+            code: `IN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-5)}`,
+            type: "รับเข้า",
+            product_id: created.id,
+            product_name: created.name,
+            qty: p.stock,
+            unit_cost: created.cost,
+            expiry_date: created.expiryDate ?? null,
+            warehouse: "คลังหลัก",
+            by_user: "admin",
+            note: "สต็อกเริ่มต้นจากการสร้างสินค้าใหม่",
+            stock_before: 0,
+            stock_after: p.stock,
+            status: "completed",
+          });
+          qc.invalidateQueries({ queryKey: ["movements"] });
+          qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+        } catch (e) {
+          // ถ้า insert movement ไม่สำเร็จ สินค้ายังอยู่ แต่ไม่มี audit trail
+          console.error("Initial stock movement failed:", e);
+        }
+      }
+
       toast.success(`เพิ่มสินค้าใหม่แล้ว: ${created.name}`);
     } catch (e) {
       toast.error("เพิ่มสินค้าไม่สำเร็จ", { description: (e as Error).message });
@@ -375,11 +406,15 @@ function ProductForm({
 }) {
   const newSku = () => `NEW-${String(Math.floor(Math.random() * 9999)).padStart(4, "0")}`;
   const newBarcode = () => `885${String(Math.floor(Math.random() * 9999999)).padStart(7, "0")}`;
+  const { categories, invalidate: invalidateCategories } = useCategories();
+  const qc = useQueryClient();
 
   const [name, setName] = useState("");
   const [sku, setSku] = useState(newSku);
   const [barcode, setBarcode] = useState(newBarcode);
-  const [category, setCategory] = useState<string>(categories[0]!);
+  const [category, setCategory] = useState<string>("");
+  const [newCategory, setNewCategory] = useState("");
+  const [showNewCategory, setShowNewCategory] = useState(false);
   const [brand, setBrand] = useState("");
   const [price, setPrice] = useState("");
   const [cost, setCost] = useState("");
@@ -392,11 +427,42 @@ function ProductForm({
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // ตั้งค่า category เริ่มต้นเมื่อ categories โหลดแล้ว
+  useEffect(() => {
+    if (!category && categories.length > 0) {
+      setCategory(categories[0]!);
+    }
+  }, [categories, category]);
+
+  const addCategory = async () => {
+    const trimmed = newCategory.trim();
+    if (!trimmed) {
+      toast.error("กรุณากรอกชื่อหมวดหมู่");
+      return;
+    }
+    if (categories.includes(trimmed)) {
+      toast.error("หมวดหมู่นี้มีอยู่แล้ว");
+      return;
+    }
+    try {
+      await categoriesApi.create(trimmed);
+      await invalidateCategories();
+      setCategory(trimmed);
+      setNewCategory("");
+      setShowNewCategory(false);
+      toast.success(`เพิ่มหมวดหมู่แล้ว: ${trimmed}`);
+    } catch (e) {
+      toast.error("เพิ่มหมวดหมู่ไม่สำเร็จ", { description: (e as Error).message });
+    }
+  };
+
   const reset = () => {
     setName("");
     setSku(newSku());
     setBarcode(newBarcode());
-    setCategory(categories[0]!);
+    setCategory(categories[0] ?? "");
+    setNewCategory("");
+    setShowNewCategory(false);
     setBrand("");
     setPrice("");
     setCost("");
@@ -440,7 +506,7 @@ function ProductForm({
     const minNum = Number(minStock) || 0;
     const status: ProductStatus = stockNum === 0 ? "out" : stockNum < minNum ? "low" : "active";
 
-    const productId = `p-${Date.now()}`;
+    const productId = `p-${crypto.randomUUID()}`;
 
     // อัปโหลดรูปถ้ามี
     let imageUrl: string | undefined;
@@ -573,19 +639,53 @@ function ProductForm({
 
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">หมวดหมู่</Label>
-              <Select value={category} onValueChange={setCategory}>
-                <SelectTrigger className="h-9 rounded-xl">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="rounded-xl">
-                  {categories.map((c) => (
-                    <SelectItem key={c} value={c}>
-                      {c}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="flex items-center justify-between">
+                <Label className="text-xs font-semibold">หมวดหมู่</Label>
+                <button
+                  type="button"
+                  className="text-[11px] text-primary hover:underline"
+                  onClick={() => setShowNewCategory((v) => !v)}
+                >
+                  + เพิ่มหมวดหมู่
+                </button>
+              </div>
+              {showNewCategory ? (
+                <div className="flex gap-2">
+                  <Input
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    placeholder="ชื่อหมวดหมู่ใหม่"
+                    className="rounded-xl"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        addCategory();
+                      }
+                    }}
+                  />
+                  <Button
+                    type="button"
+                    size="sm"
+                    className="rounded-xl shrink-0"
+                    onClick={addCategory}
+                  >
+                    บันทึก
+                  </Button>
+                </div>
+              ) : (
+                <Select value={category} onValueChange={setCategory}>
+                  <SelectTrigger className="h-9 rounded-xl">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="rounded-xl">
+                    {categories.map((c) => (
+                      <SelectItem key={c} value={c}>
+                        {c}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="prod-brand" className="text-xs font-semibold">

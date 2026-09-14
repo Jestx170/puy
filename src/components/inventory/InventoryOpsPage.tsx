@@ -34,7 +34,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { numberFmt } from "@/lib/format";
+import { numberFmt, currency } from "@/lib/format";
 import type { Movement } from "@/types";
 import { movementsApi } from "@/lib/api/movements";
 import { productsApi } from "@/lib/api/products";
@@ -221,6 +221,8 @@ function MovementForm({
   // ค่าเริ่มต้นของฟอร์ม — สาขาเดียว ใช้ "คลังหลัก" เสมอ
   const [productId, setProductId] = useState(products[0]?.id ?? "");
   const [qty, setQty] = useState("10");
+  const [unitCost, setUnitCost] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [by, setBy] = useState("admin");
   const [note, setNote] = useState("");
 
@@ -228,9 +230,14 @@ function MovementForm({
   const fixedType = type as Movement["type"] | undefined;
   const [moveType, setMoveType] = useState<Movement["type"]>(fixedType ?? "รับเข้า");
 
+  // เติม unitCost อัตโนมัติตามสินค้าที่เลือก (สำหรับรับเข้า)
+  const selectedProduct = products.find((p) => p.id === productId);
+
   const reset = () => {
     setProductId(products[0]?.id ?? "");
     setQty("10");
+    setUnitCost("");
+    setExpiryDate("");
     setBy("admin");
     setNote("");
   };
@@ -255,10 +262,17 @@ function MovementForm({
       return;
     }
 
+    // แปลง unitCost เป็น number (ถ้ากรอกและเป็นรับเข้า)
+    const costNum = moveType === "รับเข้า" && unitCost ? Number(unitCost) : undefined;
+    // วันหมดอายุของล็อต (ถ้ากรอกและเป็นรับเข้า)
+    const expiry = moveType === "รับเข้า" && expiryDate ? expiryDate : undefined;
+
     try {
       // RPC record_stock_movement ทำทุกอย่างใน transaction เดียว:
-      // - สร้าง stock_movement (พร้อม audit trail stock_before/after)
+      // - สร้าง stock_movement (พร้อม audit trail stock_before/after + unit_cost + expiry_date)
       // - อัปเดต products.stock
+      // - ถ้ารับเข้าและมี unitCost → คำนวณ weighted average cost อัปเดต products.cost
+      // - ถ้ารับเข้าและมี expiryDate → อัปเดต products.expiry_date เป็นวันใกล้สุด (FEFO)
       // - trigger คำนวณ products.status อัตโนมัติ
       // - ป้องกัน negative stock (DB CHECK constraint)
       const created = await movementsApi.create({
@@ -269,6 +283,8 @@ function MovementForm({
         warehouse: "คลังหลัก",
         by: by.trim() || "admin",
         note: note.trim() || undefined,
+        unitCost: costNum,
+        expiryDate: expiry,
       });
       qc.invalidateQueries({ queryKey: ["products"] });
       qc.invalidateQueries({ queryKey: ["movements"] });
@@ -351,6 +367,53 @@ function MovementForm({
             />
           </div>
 
+          {/* ต้นทุนต่อหน่วย — แสดงเฉพาะตอนรับเข้า */}
+          {moveType === "รับเข้า" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mv-cost" className="text-xs font-semibold">
+                ต้นทุนต่อหน่วย (บาท)
+              </Label>
+              <Input
+                id="mv-cost"
+                type="number"
+                min="0"
+                step="0.01"
+                value={unitCost}
+                onChange={(e) => setUnitCost(e.target.value)}
+                placeholder={selectedProduct ? String(selectedProduct.cost) : "0"}
+                className="rounded-xl"
+              />
+              {selectedProduct && (
+                <p className="text-[11px] text-muted-foreground">
+                  ต้นทุนปัจจุบัน {currency(selectedProduct.cost)} · ถ้ากรอก
+                  ระบบจะคำนวณต้นทุนเฉลี่ยถ่วงน้ำหนักอัตโนมัติ
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* วันหมดอายุ — แสดงเฉพาะตอนรับเข้า */}
+          {moveType === "รับเข้า" && (
+            <div className="space-y-1.5">
+              <Label htmlFor="mv-expiry" className="text-xs font-semibold">
+                วันหมดอายุของล็อต
+              </Label>
+              <Input
+                id="mv-expiry"
+                type="date"
+                value={expiryDate}
+                onChange={(e) => setExpiryDate(e.target.value)}
+                className="rounded-xl"
+              />
+              {selectedProduct?.expiryDate && (
+                <p className="text-[11px] text-muted-foreground">
+                  วันหมดอายุปัจจุบัน {selectedProduct.expiryDate} · ถ้ากรอก
+                  ระบบจะอัปเดตเป็นวันที่ใกล้สุด (FEFO)
+                </p>
+              )}
+            </div>
+          )}
+
           {/* ผู้ทำรายการ */}
           <div className="space-y-1.5">
             <Label htmlFor="mv-by" className="text-xs font-semibold">
@@ -397,6 +460,10 @@ function MovementForm({
             </div>
             <p className="mt-1 text-xs text-muted-foreground">
               {moveType} · คลังหลัก · {by || "admin"}
+              {moveType === "รับเข้า" && unitCost && (
+                <span> · ต้นทุน {currency(Number(unitCost))}/หน่วย</span>
+              )}
+              {moveType === "รับเข้า" && expiryDate && <span> · หมดอายุ {expiryDate}</span>}
             </p>
           </div>
         </div>

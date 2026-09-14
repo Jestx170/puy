@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Store, Save, Loader2, Printer } from "lucide-react";
+import { Store, Save, Loader2, Printer, Plus, Trash2, Tags } from "lucide-react";
 import { toast } from "sonner";
 
 import { PageHeader } from "@/components/layout/PageHeader";
@@ -11,7 +11,18 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Separator } from "@/components/ui/separator";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { settingsApi } from "@/lib/api/settings";
+import { categoriesApi } from "@/lib/api/categories";
 import { printReceipt } from "@/lib/print";
 import { DEFAULT_STORE_SETTINGS, type StoreSettings } from "@/types";
 
@@ -235,6 +246,158 @@ function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <CategoryManager />
     </div>
+  );
+}
+
+// ============================================================
+// CategoryManager — จัดการหมวดหมู่สินค้า (เพิ่ม/ลบ)
+// ============================================================
+function CategoryManager() {
+  const qc = useQueryClient();
+  const { data: categories = [], isLoading } = useQuery({
+    queryKey: ["categories"],
+    queryFn: () => categoriesApi.list(),
+    retry: false,
+  });
+
+  const [newName, setNewName] = useState("");
+  const [adding, setAdding] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleAdd = async () => {
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      toast.error("กรุณากรอกชื่อหมวดหมู่");
+      return;
+    }
+    if (categories.includes(trimmed)) {
+      toast.error("หมวดหมู่นี้มีอยู่แล้ว");
+      return;
+    }
+    setAdding(true);
+    try {
+      await categoriesApi.create(trimmed);
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      setNewName("");
+      toast.success(`เพิ่มหมวดหมู่แล้ว: ${trimmed}`);
+    } catch (e) {
+      toast.error("เพิ่มหมวดหมู่ไม่สำเร็จ", { description: (e as Error).message });
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await categoriesApi.remove(deleteTarget);
+      qc.invalidateQueries({ queryKey: ["categories"] });
+      toast.success(`ลบหมวดหมู่แล้ว: ${deleteTarget}`);
+      setDeleteTarget(null);
+    } catch (e) {
+      toast.error("ลบหมวดหมู่ไม่สำเร็จ", { description: (e as Error).message });
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  return (
+    <Card className="rounded-xl">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-base">
+          <Tags className="size-4 text-primary" />
+          หมวดหมู่สินค้า
+        </CardTitle>
+        <CardDescription>
+          เพิ่มหรือลบหมวดหมู่ — ใช้ในฟอร์มสินค้า, POS, คลังสินค้า และโปรโมชัน
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* เพิ่มหมวดหมู่ใหม่ */}
+        <div className="flex gap-2">
+          <Input
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            placeholder="ชื่อหมวดหมู่ใหม่"
+            className="rounded-xl"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleAdd();
+              }
+            }}
+          />
+          <Button
+            size="sm"
+            className="rounded-xl shrink-0"
+            onClick={handleAdd}
+            disabled={adding || !newName.trim()}
+          >
+            {adding ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            เพิ่ม
+          </Button>
+        </div>
+
+        <Separator />
+
+        {/* รายการหมวดหมู่ */}
+        {isLoading ? (
+          <div className="flex items-center justify-center py-6">
+            <Loader2 className="size-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : categories.length === 0 ? (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            ยังไม่มีหมวดหมู่ — เพิ่มได้จากช่องด้านบน
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {categories.map((c) => (
+              <div
+                key={c}
+                className="flex items-center gap-1.5 rounded-xl border bg-muted/30 px-3 py-1.5"
+              >
+                <span className="text-sm">{c}</span>
+                <button
+                  className="text-muted-foreground hover:text-destructive"
+                  onClick={() => setDeleteTarget(c)}
+                  aria-label={`ลบ ${c}`}
+                >
+                  <Trash2 className="size-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+
+      {/* ยืนยันการลบ */}
+      <AlertDialog open={!!deleteTarget} onOpenChange={(v) => !v && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>ลบหมวดหมู่ "{deleteTarget}"?</AlertDialogTitle>
+            <AlertDialogDescription>
+              สินค้าที่ใช้หมวดหมู่นี้อยู่จะยังคงชื่อหมวดหมู่เดิมไว้ แต่จะไม่แสดงในตัวเลือก dropdown
+              อีก
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleting}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {deleting ? <Loader2 className="size-4 animate-spin" /> : null}
+              ลบ
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </Card>
   );
 }

@@ -121,7 +121,30 @@ function OrderDetail() {
             <Button
               size="sm"
               className="rounded-xl"
-              onClick={() => toast.success("ดาวน์โหลดใบกำกับภาษีแล้ว")}
+              onClick={() => {
+                printReceipt({
+                  storeName: storeSettings.storeName,
+                  storeAddress: storeSettings.storeAddress ?? undefined,
+                  storePhone: storeSettings.storePhone ?? undefined,
+                  taxId: storeSettings.taxId ?? undefined,
+                  docTitle: "ใบกำกับภาษี",
+                  receiptNo: order.code,
+                  date: order.date,
+                  customer: order.customer,
+                  salesperson: order.salesperson,
+                  channel: order.channel,
+                  lines: items.map((l) => ({
+                    name: l.productName,
+                    qty: l.qty,
+                    unit: productMap.get(l.productId)?.unit ?? "ชิ้น",
+                    price: l.price,
+                  })),
+                  subtotal,
+                  total: subtotal,
+                  payment: order.payment,
+                });
+                toast.success("เปิดหน้าต่างพิมพ์แล้ว — เลือกเครื่องพิมพ์เพื่อพิมพ์ใบกำกับภาษี");
+              }}
             >
               <Download className="size-4" /> ใบกำกับภาษี
             </Button>

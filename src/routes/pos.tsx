@@ -44,7 +44,7 @@ import {
 import { EmptyState } from "@/components/common/EmptyState";
 import { ProductImage } from "@/components/common/ProductImage";
 import { printReceipt } from "@/lib/print";
-import { productCategories as categories } from "@/lib/constants";
+import { useCategories } from "@/hooks/useCategories";
 import { currency } from "@/lib/format";
 import type { Customer, Product } from "@/types";
 import { productsApi } from "@/lib/api/products";
@@ -100,6 +100,7 @@ function PosPage() {
   const { user } = useAuth();
   const salesperson = user ?? "admin";
   const qc = useQueryClient();
+  const { categories } = useCategories();
 
   // ดึงสินค้า/ลูกค้าจาก Supabase
   const { data: productList = [] } = useQuery({
@@ -304,8 +305,8 @@ function PosPage() {
 
     setSubmitting(true);
     const methodLabel = paymentKeyToLabel(method);
-    const orderId = `o-${Date.now()}`;
-    const orderCode = `POS-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-5)}`;
+    const orderId = `o-${crypto.randomUUID()}`;
+    const orderCode = `POS-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${crypto.randomUUID().slice(0, 8)}`;
     const lines: OrderLineInput[] = cart.map((l) => ({
       productId: l.product.id,
       productName: l.product.name,

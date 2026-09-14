@@ -47,7 +47,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { currency } from "@/lib/format";
-import { productCategories as categories } from "@/lib/constants";
+import { useCategories } from "@/hooks/useCategories";
 import type { Product } from "@/types";
 import { productsApi } from "@/lib/api/products";
 
@@ -118,6 +118,7 @@ function ProductDetail() {
   const { product: initial } = Route.useLoaderData();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const { categories } = useCategories();
   const [editOpen, setEditOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -171,7 +172,20 @@ function ProductDetail() {
               variant="outline"
               size="sm"
               className="rounded-xl"
-              onClick={() => toast("พิมพ์ฉลากบาร์โค้ด")}
+              onClick={() => {
+                const html = `<!DOCTYPE html><html lang="th"><head><meta charset="utf-8"/><title>ฉลาก ${p.sku}</title><style>@page{margin:4mm}body{font-family:"Noto Sans Thai",system-ui,sans-serif;text-align:center;padding:4mm;max-width:60mm;margin:0 auto}.name{font-size:13px;font-weight:700;margin-bottom:4px}.barcode{font-size:28px;letter-spacing:3px;font-family:"Courier New",monospace;margin:6px 0}.sku{font-size:11px;color:#555}.price{font-size:16px;font-weight:700;margin-top:4px}@media print{body{padding:0;max-width:none}}</style></head><body><div class="name">${p.name.replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">")}</div><div class="barcode">${(p.barcode || p.sku).replace(/&/g, "&").replace(/</g, "<").replace(/>/g, ">")}</div><div class="sku">SKU: ${p.sku}</div><div class="price">${new Intl.NumberFormat("th-TH", { style: "currency", currency: "THB" }).format(p.price)}</div></body></html>`;
+                const win = window.open("", "_blank", "width=300,height=200");
+                if (!win) {
+                  toast.error("ป๊อปอัปถูกบล็อก — อนุญาตป๊อปอัปแล้วลองอีกครั้ง");
+                  return;
+                }
+                win.document.open();
+                win.document.write(html);
+                win.document.close();
+                win.focus();
+                setTimeout(() => win.print(), 300);
+                toast.success("เปิดหน้าต่างพิมพ์ฉลากแล้ว");
+              }}
             >
               <Printer className="size-4" /> พิมพ์ฉลาก
             </Button>
@@ -214,7 +228,7 @@ function ProductDetail() {
               variant="outline"
               size="sm"
               className="rounded-xl"
-              onClick={() => toast.success("เพิ่มเข้าใบสั่งซื้อ")}
+              onClick={() => navigate({ to: "/inventory/stock-in" })}
             >
               <Plus className="size-4" /> สั่งซื้อ
             </Button>
@@ -364,6 +378,7 @@ function EditProductSheet({
   product: Product;
   onSaved: (p: Product) => void;
 }) {
+  const { categories } = useCategories();
   const [name, setName] = useState(product.name);
   const [sku, setSku] = useState(product.sku);
   const [barcode, setBarcode] = useState(product.barcode);

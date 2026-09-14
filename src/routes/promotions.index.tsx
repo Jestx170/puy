@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -69,7 +69,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import { productCategories as categories } from "@/lib/constants";
+import { useCategories } from "@/hooks/useCategories";
 import { promotionsApi } from "@/lib/api/promotions";
 import type { Promotion, PromotionScopeType } from "@/types";
 import { exportToCSV } from "@/lib/export";
@@ -113,11 +113,32 @@ function PromotionsPage() {
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState("priority");
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<Promotion | null>(null);
 
   const { data: list = [], isLoading } = useQuery({
     queryKey: ["promotions"],
     queryFn: () => promotionsApi.list(),
   });
+
+  const openCreate = () => {
+    setEditTarget(null);
+    setBuilderOpen(true);
+  };
+
+  const openEdit = (p: Promotion) => {
+    setEditTarget(p);
+    setBuilderOpen(true);
+  };
+
+  const editPromotion = async (id: string, p: Partial<Promotion>) => {
+    try {
+      await promotionsApi.update(id, p);
+      qc.invalidateQueries({ queryKey: ["promotions"] });
+      toast.success(`แก้ไขโปรโมชันแล้ว: ${p.name ?? ""}`);
+    } catch (e) {
+      toast.error("แก้ไขไม่สำเร็จ", { description: (e as Error).message });
+    }
+  };
 
   const filtered = useMemo(() => {
     const out = list.filter(
@@ -236,7 +257,7 @@ function PromotionsPage() {
             >
               <Download className="size-4" /> ส่งออก
             </Button>
-            <Button size="sm" className="rounded-xl" onClick={() => setBuilderOpen(true)}>
+            <Button size="sm" className="rounded-xl" onClick={openCreate}>
               <Plus className="size-4" /> สร้างโปรโมชัน
             </Button>
           </>
@@ -395,7 +416,7 @@ function PromotionsPage() {
                       variant="ghost"
                       size="sm"
                       className="rounded-lg text-xs"
-                      onClick={() => toast(`แก้ไขโปรโมชัน: ${p.name}`)}
+                      onClick={() => openEdit(p)}
                     >
                       <Pencil className="size-3.5" /> แก้ไข
                     </Button>
@@ -458,7 +479,13 @@ function PromotionsPage() {
       </div>
 
       {/* Promotion Builder (Sheet ฝั่งขวา) */}
-      <PromotionBuilder open={builderOpen} onOpenChange={setBuilderOpen} onCreate={addPromotion} />
+      <PromotionBuilder
+        open={builderOpen}
+        onOpenChange={setBuilderOpen}
+        onCreate={addPromotion}
+        onEdit={editPromotion}
+        editTarget={editTarget}
+      />
     </div>
   );
 }
@@ -469,11 +496,16 @@ function PromotionBuilder({
   open,
   onOpenChange,
   onCreate,
+  onEdit,
+  editTarget,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   onCreate: (p: Omit<Promotion, "id" | "used">) => void;
+  onEdit: (id: string, p: Partial<Promotion>) => void;
+  editTarget: Promotion | null;
 }) {
+  const { categories } = useCategories();
   const [name, setName] = useState("");
   const [kind, setKind] = useState<Promotion["kind"]>("ส่วนลด");
   const [value, setValue] = useState("");
@@ -484,6 +516,25 @@ function PromotionBuilder({
   const [budget, setBudget] = useState("500");
   const [priority, setPriority] = useState("3");
   const [note, setNote] = useState("");
+
+  // โหลดค่าจาก editTarget เมื่อเปิดฟอร์มแก้ไข
+  useEffect(() => {
+    if (!open) return;
+    if (editTarget) {
+      setName(editTarget.name);
+      setKind(editTarget.kind);
+      setValue(editTarget.value);
+      setScope(editTarget.scope);
+      setScopeType(editTarget.scopeType ?? "category");
+      setStart(editTarget.start);
+      setEnd(editTarget.end);
+      setBudget(String(editTarget.budget));
+      setPriority(String(editTarget.priority));
+      setNote(editTarget.note ?? "");
+    } else {
+      reset();
+    }
+  }, [open, editTarget]);
 
   const reset = () => {
     setName("");
@@ -509,7 +560,7 @@ function PromotionBuilder({
         : scopeType === "all"
           ? "ทั้งหมด"
           : scope || "ระบุภายหลัง";
-    const newPromo: Omit<Promotion, "id" | "used"> = {
+    const payload = {
       name: name.trim(),
       kind,
       value: value.trim(),
@@ -519,10 +570,16 @@ function PromotionBuilder({
       end,
       budget: Number(budget) || 100,
       priority: Number(priority) || 5,
-      status: new Date(start) > new Date() ? "scheduled" : "active",
       note: note.trim() || undefined,
     };
-    onCreate(newPromo);
+    if (editTarget) {
+      onEdit(editTarget.id, payload);
+    } else {
+      onCreate({
+        ...payload,
+        status: new Date(start) > new Date() ? "scheduled" : "active",
+      });
+    }
     reset();
     onOpenChange(false);
   };
@@ -532,9 +589,14 @@ function PromotionBuilder({
       <SheetContent className="w-full overflow-y-auto sm:max-w-md">
         <SheetHeader>
           <SheetTitle className="flex items-center gap-2">
-            <Sparkles className="size-4 text-primary" /> Promotion Builder
+            <Sparkles className="size-4 text-primary" />
+            {editTarget ? "แก้ไขโปรโมชัน" : "Promotion Builder"}
           </SheetTitle>
-          <SheetDescription>สร้างโปรโมชันใหม่ กำหนดเงื่อนไข ขอบเขต และช่วงเวลา</SheetDescription>
+          <SheetDescription>
+            {editTarget
+              ? "แก้ไขเงื่อนไข ขอบเขต และช่วงเวลาของโปรโมชัน"
+              : "สร้างโปรโมชันใหม่ กำหนดเงื่อนไข ขอบเขต และช่วงเวลา"}
+          </SheetDescription>
         </SheetHeader>
 
         <div className="space-y-4 py-4">
@@ -733,7 +795,15 @@ function PromotionBuilder({
             ยกเลิก
           </Button>
           <Button className="rounded-xl" onClick={submit}>
-            <Plus className="size-4" /> สร้างโปรโมชัน
+            {editTarget ? (
+              <>
+                <Pencil className="size-4" /> บันทึกการแก้ไข
+              </>
+            ) : (
+              <>
+                <Plus className="size-4" /> สร้างโปรโมชัน
+              </>
+            )}
           </Button>
         </SheetFooter>
       </SheetContent>

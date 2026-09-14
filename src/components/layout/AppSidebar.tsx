@@ -1,4 +1,4 @@
-import { Link, useRouterState } from "@tanstack/react-router";
+import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import {
   LayoutDashboard,
   Users,
@@ -13,7 +13,9 @@ import {
   History,
   ClipboardList,
   Settings,
+  LogOut,
 } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   Sidebar,
@@ -31,6 +33,7 @@ import {
   SidebarMenuSubItem,
   useSidebar,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/lib/auth";
 
 const modules = [
   { title: "แดชบอร์ด", en: "Dashboard", url: "/", icon: LayoutDashboard, exact: true },
@@ -55,6 +58,8 @@ export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
   const pathname = useRouterState({ select: (r) => r.location.pathname });
+  const navigate = useNavigate();
+  const { logout } = useAuth();
 
   const isActive = (url: string, exact?: boolean) =>
     exact ? pathname === url : pathname === url || pathname.startsWith(url + "/");
@@ -117,13 +122,34 @@ export function AppSidebar() {
 
       <SidebarFooter className="border-t p-3">
         {collapsed ? (
-          <div className="grid size-8 place-items-center rounded-lg bg-secondary text-xs font-semibold text-secondary-foreground">
-            ธ
-          </div>
+          <SidebarMenuButton
+            tooltip="ออกจากระบบ"
+            onClick={() => {
+              logout();
+              toast.success("ออกจากระบบเรียบร้อย");
+              navigate({ to: "/login" });
+            }}
+            className="text-muted-foreground hover:text-destructive"
+          >
+            <LogOut className="size-4" />
+          </SidebarMenuButton>
         ) : (
-          <div className="rounded-xl bg-secondary/60 p-3">
-            <p className="text-xs font-semibold text-secondary-foreground">แผนธุรกิจ · Pro</p>
-            <p className="mt-0.5 text-[11px] text-muted-foreground">1 สาขา · 1 ผู้ใช้งาน</p>
+          <div className="space-y-2">
+            <div className="rounded-xl bg-secondary/60 p-3">
+              <p className="text-xs font-semibold text-secondary-foreground">แผนธุรกิจ · Pro</p>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">1 สาขา · 1 ผู้ใช้งาน</p>
+            </div>
+            <SidebarMenuButton
+              onClick={() => {
+                logout();
+                toast.success("ออกจากระบบเรียบร้อย");
+                navigate({ to: "/login" });
+              }}
+              className="text-muted-foreground hover:text-destructive"
+            >
+              <LogOut className="size-4 shrink-0" />
+              <span className="truncate">ออกจากระบบ</span>
+            </SidebarMenuButton>
           </div>
         )}
       </SidebarFooter>

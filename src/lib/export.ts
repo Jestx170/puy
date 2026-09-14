@@ -21,7 +21,11 @@ export function toCSV<T extends Record<string, unknown>>(
 
   const escape = (val: unknown): string => {
     if (val === null || val === undefined) return "";
-    const s = String(val);
+    let s = String(val);
+    // ป้องกัน CSV/formula injection: ค่าที่ขึ้นต้นด้วย = + - @ \t อาจถูก Excel ประมวลผลเป็นสูตร
+    if (/^[=+\-@\t]/.test(s)) {
+      s = `'${s}`;
+    }
     // ถ้ามี comma, quote, หรือ newline ต้อง wrap ด้วย double-quote
     if (/[",\n\r]/.test(s)) {
       return `"${s.replace(/"/g, '""')}"`;

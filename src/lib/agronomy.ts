@@ -44,18 +44,89 @@ export const LONGAN_CYCLE_DAYS = longanCareProgram.reduce(
   0,
 );
 
-/** ระบบนี้รองรับลำไยเท่านั้น จึงใช้รอบเดียวกับทุกแปลง */
-export const cycleDaysFor = (_crop?: string) => LONGAN_CYCLE_DAYS;
+/** ความยาวรอบการดูแลทุเรียนทั้งรอบ (วัน) — ผลรวมค่าสูงสุดของแต่ละระยะ */
+export const DURIAN_CYCLE_DAYS =
+  28 +
+  30 +
+  20 +
+  30 +
+  21 +
+  30 +
+  21 +
+  28 +
+  14 +
+  14 +
+  14 +
+  10 +
+  21 +
+  21 +
+  28 +
+  56 +
+  84 +
+  105 +
+  126 +
+  14 +
+  0;
+
+/** ความยาวรอบตามพืช */
+export const cycleDaysFor = (crop?: string) =>
+  crop === "ทุเรียน" ? DURIAN_CYCLE_DAYS : LONGAN_CYCLE_DAYS;
 
 /** จำนวนวันของแต่ละระยะ (ค่ากลางของช่วงใน Excel) — รักษา export เดิมไว้ */
-export const stageDurationDays: Record<string, number> = Object.fromEntries(
-  longanCareProgram.map((p) => [p.name, p.durationMax ?? p.durationMin ?? 0]),
-);
+export const stageDurationDays: Record<string, number> = {
+  ...Object.fromEntries(
+    longanCareProgram.map((p) => [p.name, p.durationMax ?? p.durationMin ?? 0]),
+  ),
+  // ทุเรียน (ค่าสูงสุดของช่วง)
+  ฟื้นต้นหลังเก็บเกี่ยว: 28,
+  "แตกใบอ่อน ชุดที่ 1": 30,
+  "ใบเพสลาด / ใบเริ่มแก่": 20,
+  "แตกใบอ่อน ชุดที่ 2": 30,
+  "ใบแก่ ชุดที่ 2": 21,
+  "แตกใบอ่อน ชุดที่ 3": 30,
+  ใบแก่พร้อมออกดอก: 21,
+  "พักต้น / ชักนำการออกดอก": 28,
+  เริ่มเห็นตาดอก: 14,
+  "ตาดอก / ช่อดอกพัฒนา": 14,
+  ช่อดอกยืด: 14,
+  ดอกบาน: 10,
+  ติดผลอ่อน: 21,
+  "ผลระยะปิ่น / ผลเล็ก": 21,
+  "ผลอายุประมาณ 1 เดือน": 28,
+  "ผลขยาย ระยะที่ 1": 56,
+  "ผลขยาย ระยะที่ 2": 84,
+  ผลเริ่มแก่: 105,
+  ผลแก่ใกล้เก็บเกี่ยว: 126,
+  ก่อนเก็บเกี่ยว: 14,
+  เก็บเกี่ยว: 0,
+};
 
 /** ความถี่การพ่นของแต่ละระยะ (วัน/ครั้ง) — null = ทำครั้งเดียว/ตามสภาพต้น */
-export const stageFrequencyDays: Record<string, number | null> = Object.fromEntries(
-  longanCareProgram.map((p) => [p.name, p.frequencyDays]),
-);
+export const stageFrequencyDays: Record<string, number | null> = {
+  ...Object.fromEntries(longanCareProgram.map((p) => [p.name, p.frequencyDays])),
+  // ทุเรียน
+  ฟื้นต้นหลังเก็บเกี่ยว: 10,
+  "แตกใบอ่อน ชุดที่ 1": 7,
+  "ใบเพสลาด / ใบเริ่มแก่": 7,
+  "แตกใบอ่อน ชุดที่ 2": 7,
+  "ใบแก่ ชุดที่ 2": 10,
+  "แตกใบอ่อน ชุดที่ 3": 7,
+  ใบแก่พร้อมออกดอก: 7,
+  "พักต้น / ชักนำการออกดอก": 5,
+  เริ่มเห็นตาดอก: 5,
+  "ตาดอก / ช่อดอกพัฒนา": 5,
+  ช่อดอกยืด: 5,
+  ดอกบาน: null,
+  ติดผลอ่อน: 7,
+  "ผลระยะปิ่น / ผลเล็ก": 7,
+  "ผลอายุประมาณ 1 เดือน": 7,
+  "ผลขยาย ระยะที่ 1": 7,
+  "ผลขยาย ระยะที่ 2": 10,
+  ผลเริ่มแก่: 10,
+  ผลแก่ใกล้เก็บเกี่ยว: null,
+  ก่อนเก็บเกี่ยว: null,
+  เก็บเกี่ยว: null,
+};
 
 /** จำนวนครั้งเริ่มต้นตามแผนของแต่ละระยะ */
 export const stageRoundsDefault: Record<string, number> = Object.fromEntries(

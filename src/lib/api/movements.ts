@@ -8,6 +8,8 @@ function rowToMovement(r: DbMovement): Movement {
     type: r.type as Movement["type"],
     product: r.product_name,
     qty: r.qty,
+    unitCost: r.unit_cost ?? undefined,
+    expiryDate: r.expiry_date ?? undefined,
     warehouse: r.warehouse,
     by: r.by_user,
     date: r.date,
@@ -51,6 +53,8 @@ export const movementsApi = {
     by: string;
     note?: string | undefined;
     reference?: string | undefined;
+    unitCost?: number | undefined;
+    expiryDate?: string | undefined;
   }): Promise<Movement> {
     const { data, error } = await supabase.rpc("record_stock_movement", {
       p_product_id: m.productId,
@@ -60,6 +64,8 @@ export const movementsApi = {
       p_by_user: m.by,
       p_note: m.note ?? null,
       p_reference: m.reference ?? null,
+      p_unit_cost: m.unitCost ?? null,
+      p_expiry_date: m.expiryDate ?? null,
     });
     if (error) throw error;
     // RPC คืน row ของ stock_movements โดยตรง
@@ -74,6 +80,8 @@ interface DbMovement {
   product_id: string | null;
   product_name: string;
   qty: number;
+  unit_cost: number | null;
+  expiry_date: string | null;
   warehouse: string;
   by_user: string;
   note: string | null;

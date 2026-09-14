@@ -7,7 +7,7 @@ export type Money = number;
 
 // --- Product ---
 
-export type ProductStatus = "active" | "low" | "out" | "draft" | "discontinued";
+export type ProductStatus = "active" | "low" | "out" | "discontinued";
 
 export interface Product {
   id: string;
@@ -84,8 +84,33 @@ export const longanStages = [
   "ก่อนเก็บ",
 ] as const;
 
-/** ระยะที่ระบบใช้งานอยู่ — ตอนนี้เท่ากับของลำไย เพราะมีโปรแกรมเดียว */
-export const cultivationStages = longanStages;
+/** ระยะการดูแลทุเรียน 21 ระยะ (ตามตารางโปรแกรมของร้าน) */
+export const durianStages = [
+  "ฟื้นต้นหลังเก็บเกี่ยว",
+  "แตกใบอ่อน ชุดที่ 1",
+  "ใบเพสลาด / ใบเริ่มแก่",
+  "แตกใบอ่อน ชุดที่ 2",
+  "ใบแก่ ชุดที่ 2",
+  "แตกใบอ่อน ชุดที่ 3",
+  "ใบแก่พร้อมออกดอก",
+  "พักต้น / ชักนำการออกดอก",
+  "เริ่มเห็นตาดอก",
+  "ตาดอก / ช่อดอกพัฒนา",
+  "ช่อดอกยืด",
+  "ดอกบาน",
+  "ติดผลอ่อน",
+  "ผลระยะปิ่น / ผลเล็ก",
+  "ผลอายุประมาณ 1 เดือน",
+  "ผลขยาย ระยะที่ 1",
+  "ผลขยาย ระยะที่ 2",
+  "ผลเริ่มแก่",
+  "ผลแก่ใกล้เก็บเกี่ยว",
+  "ก่อนเก็บเกี่ยว",
+  "เก็บเกี่ยว",
+] as const;
+
+/** ระยะที่ระบบใช้งานอยู่ — รวมทุกพืชที่ ready (ใช้ใน UI ที่ไม่กรองตาม crop) */
+export const cultivationStages = [...longanStages, ...durianStages] as const;
 
 export type CultivationStage = (typeof cultivationStages)[number];
 
@@ -103,9 +128,7 @@ export interface CropProgram {
 
 export const cropPrograms: readonly CropProgram[] = [
   { id: "longan", name: "ลำไย", stages: longanStages, ready: true },
-  { id: "durian", name: "ทุเรียน", stages: [], ready: false },
-  { id: "mangosteen", name: "มังคุด", stages: [], ready: false },
-  { id: "rambutan", name: "เงาะ", stages: [], ready: false },
+  { id: "durian", name: "ทุเรียน", stages: durianStages, ready: true },
 ];
 
 /** พืชที่เลือกได้จริงในฟอร์ม (มีตารางดูแลแล้ว) */
@@ -114,8 +137,14 @@ export const readyCropPrograms = cropPrograms.filter((c) => c.ready);
 /** พืชเริ่มต้นของแปลงใหม่ */
 export const DEFAULT_CROP = "ลำไย";
 
-/** รหัสระยะในตาราง crop_stages ของแต่ละชื่อระยะ */
-export const stageIdByName: Record<CultivationStage, string> = {
+/** ระยะทั้งหมดของพืชที่เลือก — ใช้แทน cultivationStages ใน UI ที่กรองตาม crop */
+export function stagesForCrop(crop: string): readonly string[] {
+  const program = cropPrograms.find((p) => p.name === crop && p.ready);
+  return program?.stages ?? longanStages;
+}
+
+/** รหัสระยะในตาราง crop_stages — แยกตามพืชเพราะชื่อระยะอาจซ้ำข้ามพืช (เช่น "ดอกบาน") */
+export const longanStageIdByName: Record<string, string> = {
   เตรียมต้นหลังเก็บเกี่ยว: "stage_01",
   "แตกใบอ่อน ใบแรก": "stage_02",
   "แตกใบอ่อน ใบสอง ครั้งที่ 1": "stage_03",
@@ -136,31 +165,60 @@ export const stageIdByName: Record<CultivationStage, string> = {
   ก่อนเก็บ: "stage_12",
 };
 
-export const stageRounds: Record<string, readonly CultivationStage[]> = {
+export const durianStageIdByName: Record<string, string> = {
+  ฟื้นต้นหลังเก็บเกี่ยว: "durian_01",
+  "แตกใบอ่อน ชุดที่ 1": "durian_02",
+  "ใบเพสลาด / ใบเริ่มแก่": "durian_03",
+  "แตกใบอ่อน ชุดที่ 2": "durian_04",
+  "ใบแก่ ชุดที่ 2": "durian_05",
+  "แตกใบอ่อน ชุดที่ 3": "durian_06",
+  ใบแก่พร้อมออกดอก: "durian_07",
+  "พักต้น / ชักนำการออกดอก": "durian_08",
+  เริ่มเห็นตาดอก: "durian_09",
+  "ตาดอก / ช่อดอกพัฒนา": "durian_10",
+  ช่อดอกยืด: "durian_11",
+  ดอกบาน: "durian_12",
+  ติดผลอ่อน: "durian_13",
+  "ผลระยะปิ่น / ผลเล็ก": "durian_14",
+  "ผลอายุประมาณ 1 เดือน": "durian_15",
+  "ผลขยาย ระยะที่ 1": "durian_16",
+  "ผลขยาย ระยะที่ 2": "durian_17",
+  ผลเริ่มแก่: "durian_18",
+  ผลแก่ใกล้เก็บเกี่ยว: "durian_19",
+  ก่อนเก็บเกี่ยว: "durian_20",
+  เก็บเกี่ยว: "durian_21",
+};
+
+/** ดึงรหัสระยะตามพืช — ใช้แทน stageIdByName ที่ซ้ำข้ามพืชไม่ได้ */
+export function stageIdForCrop(crop: string, stage: string): string | undefined {
+  if (crop === "ทุเรียน") return durianStageIdByName[stage];
+  return longanStageIdByName[stage];
+}
+
+/** @deprecated ใช้ stageIdForCrop แทน — เก็บไว้เพื่อ backward compat (ลำไยเท่านั้น) */
+export const stageIdByName = longanStageIdByName;
+
+export const stageRounds: Record<string, readonly string[]> = {
   "แตกใบอ่อน ใบสอง": longanStages.slice(2, 6),
   ราดสาร: longanStages.slice(6, 10),
 };
 
-export function cultivationStageSelection(stage: string, completedSequence = 0): CultivationStage {
+export function cultivationStageSelection(stage: string, completedSequence = 0): string {
   const rounds = stageRounds[stage];
-  return rounds
-    ? rounds[Math.max(0, Math.min(rounds.length - 1, completedSequence))]!
-    : (stage as CultivationStage);
+  return rounds ? rounds[Math.max(0, Math.min(rounds.length - 1, completedSequence))]! : stage;
 }
 
-export function cultivationStageStorage(stage: CultivationStage, completedSequence?: number) {
+export function cultivationStageStorage(stage: string, completedSequence?: number, crop?: string) {
   const parent = Object.entries(stageRounds).find(([, rounds]) => rounds.includes(stage));
   return {
     stage: parent?.[0] ?? stage,
-    stageId: stageIdByName[stage],
+    stageId: crop ? stageIdForCrop(crop, stage) : stageIdByName[stage],
     currentSequence: completedSequence ?? (parent ? parent[1].indexOf(stage) : 0),
   };
 }
 
-export const stageTone: Record<
-  CultivationStage,
-  "neutral" | "info" | "success" | "warning" | "danger"
-> = {
+export const stageTone: Record<string, "neutral" | "info" | "success" | "warning" | "danger"> = {
+  // ลำไย
   เตรียมต้นหลังเก็บเกี่ยว: "neutral",
   "แตกใบอ่อน ใบแรก": "success",
   "แตกใบอ่อน ใบสอง ครั้งที่ 1": "success",
@@ -179,18 +237,40 @@ export const stageTone: Record<
   ลูกมะเขือพวง: "info",
   ลูกแก้ว: "info",
   ก่อนเก็บ: "danger",
+  // ทุเรียน
+  ฟื้นต้นหลังเก็บเกี่ยว: "neutral",
+  "แตกใบอ่อน ชุดที่ 1": "success",
+  "ใบเพสลาด / ใบเริ่มแก่": "success",
+  "แตกใบอ่อน ชุดที่ 2": "success",
+  "ใบแก่ ชุดที่ 2": "success",
+  "แตกใบอ่อน ชุดที่ 3": "success",
+  ใบแก่พร้อมออกดอก: "neutral",
+  "พักต้น / ชักนำการออกดอก": "warning",
+  เริ่มเห็นตาดอก: "warning",
+  "ตาดอก / ช่อดอกพัฒนา": "warning",
+  ช่อดอกยืด: "warning",
+  // "ดอกบาน" ใช้ค่าเดียวกันทั้งลำไยและทุเรียน
+  ติดผลอ่อน: "info",
+  "ผลระยะปิ่น / ผลเล็ก": "info",
+  "ผลอายุประมาณ 1 เดือน": "info",
+  "ผลขยาย ระยะที่ 1": "info",
+  "ผลขยาย ระยะที่ 2": "info",
+  ผลเริ่มแก่: "warning",
+  ผลแก่ใกล้เก็บเกี่ยว: "danger",
+  ก่อนเก็บเกี่ยว: "danger",
+  เก็บเกี่ยว: "danger",
 };
 
 export interface Cultivation {
   id: string;
   crop: string;
-  stage: CultivationStage;
+  stage: string;
   area: number;
   plantedDate: string;
   expectedHarvest: string;
   location: string;
   note?: string | undefined;
-  /** รหัสระยะการเจริญเติบโต (เช่น stage_01) จากตาราง crop_stages */
+  /** รหัสระยะการเจริญเติบโต (เช่น stage_01, durian_01) จากตาราง crop_stages */
   stageId?: string | undefined;
   /** ครั้งที่เท่าไรใน stage ปัจจุบัน (เริ่มที่ 0) */
   currentSequence?: number | undefined;
@@ -305,6 +385,10 @@ export interface Movement {
   type: MovementType;
   product: string;
   qty: number;
+  /** ต้นทุนต่อหน่วย ณ วันที่รับเข้า (ใช้คำนวณ weighted average cost) */
+  unitCost?: number | undefined;
+  /** วันหมดอายุของล็อตที่รับเข้า (FEFO — First Expired First Out) */
+  expiryDate?: string | undefined;
   warehouse: string;
   by: string;
   date: string;

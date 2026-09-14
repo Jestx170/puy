@@ -126,7 +126,7 @@ export const cultivationsApi = {
   },
 
   async create(c: Cultivation & { customerId: string }): Promise<Cultivation> {
-    const stored = cultivationStageStorage(c.stage, c.currentSequence);
+    const stored = cultivationStageStorage(c.stage, c.currentSequence, c.crop);
     const { data, error } = await supabase
       .from("cultivations")
       .insert({
@@ -152,7 +152,7 @@ export const cultivationsApi = {
     const row: Record<string, unknown> = {};
     if (patch.crop !== undefined) row["crop"] = patch.crop;
     if (patch.stage !== undefined) {
-      const stored = cultivationStageStorage(patch.stage, patch.currentSequence);
+      const stored = cultivationStageStorage(patch.stage, patch.currentSequence, patch.crop);
       row["stage"] = stored.stage;
       row["stage_id"] = stored.stageId;
       row["current_sequence"] = stored.currentSequence;

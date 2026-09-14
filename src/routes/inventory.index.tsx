@@ -48,7 +48,7 @@ import { movementsApi } from "@/lib/api/movements";
 import { productsApi } from "@/lib/api/products";
 import { dashboardApi } from "@/lib/api/dashboard";
 import { exportToCSV } from "@/lib/export";
-import { productCategories } from "@/lib/constants";
+import { useCategories } from "@/hooks/useCategories";
 
 export const Route = createFileRoute("/inventory/")({
   head: () => ({
@@ -71,6 +71,7 @@ function InventoryOverview() {
   const [productQuery, setProductQuery] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const { categories: productCategories } = useCategories();
 
   const { data: warehouses = [] } = useQuery({
     queryKey: ["warehouses"],
@@ -536,7 +537,6 @@ function InventoryOverview() {
                 { value: "active", label: "พร้อมขาย" },
                 { value: "low", label: "ใกล้หมด" },
                 { value: "out", label: "หมดสต็อก" },
-                { value: "draft", label: "ร่าง" },
                 { value: "discontinued", label: "เลิกขาย" },
               ]}
             />

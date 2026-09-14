@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -39,14 +39,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { currency } from "@/lib/format";
-import {
-  cultivationStages,
-  stageIdByName,
-  stageTone,
-  readyCropPrograms,
-  DEFAULT_CROP,
-} from "@/types";
-import type { Cultivation, CultivationStage, Customer, MemberTier, Product } from "@/types";
+import { stagesForCrop, stageIdForCrop, stageTone, readyCropPrograms, DEFAULT_CROP } from "@/types";
+import type { Cultivation, Customer, MemberTier, Product } from "@/types";
 import { DEFAULT_STORE_SETTINGS } from "@/types";
 import {
   stageProgress,
@@ -124,12 +118,14 @@ const tierTone: Record<string, string> = {
 };
 
 const stageOrderIndex = (stageName: string) => {
-  const idx = cultivationStages.indexOf(stageName as CultivationStage);
-  return idx === -1 ? 999 : idx;
+  const idx = stagesForCrop("ลำไย").indexOf(stageName);
+  if (idx !== -1) return idx;
+  const durianIdx = stagesForCrop("ทุเรียน").indexOf(stageName);
+  return durianIdx !== -1 ? durianIdx + 100 : 999;
 };
 
 function stageBadgeClass(stageName: string) {
-  const tone = stageTone[stageName as CultivationStage] ?? "neutral";
+  const tone = stageTone[stageName] ?? "neutral";
   if (tone === "neutral") return "bg-muted text-muted-foreground border-border";
   if (tone === "info") return "bg-info/12 text-info border-info/25";
   if (tone === "success") return "bg-success/12 text-success border-success/25";
@@ -149,6 +145,8 @@ function CrmPage() {
   const [sellOpen, setSellOpen] = useState(false);
   const [cultFormOpen, setCultFormOpen] = useState(false);
   const [cultEditTarget, setCultEditTarget] = useState<Cultivation | null>(null);
+  const [savingNote, setSavingNote] = useState(false);
+  const noteRef = useRef<HTMLTextAreaElement>(null);
   const qc = useQueryClient();
 
   // ดึงลูกค้าจาก Supabase
@@ -275,6 +273,20 @@ function CrmPage() {
       toast.error("ลบลูกค้าไม่สำเร็จ", { description: (e as Error).message });
     }
     setDeleteTarget(null);
+  };
+
+  const saveNote = async () => {
+    if (!selected) return;
+    const noteValue = noteRef.current?.value ?? "";
+    setSavingNote(true);
+    try {
+      await customersApi.update(selected, { notes: noteValue });
+      qc.invalidateQueries({ queryKey: ["customers"] });
+      toast.success("บันทึกโน้ตแล้ว");
+    } catch (e) {
+      toast.error("บันทึกโน้ตไม่สำเร็จ", { description: (e as Error).message });
+    }
+    setSavingNote(false);
   };
 
   // สรุปแปลงเพาะปลูกของลูกค้าที่เลือก (เรียงตามช่วงการปลูก)
@@ -538,7 +550,8 @@ function CrmPage() {
                 className="w-full"
                 options={[
                   { value: "all", label: "ทุกช่วง" },
-                  ...cultivationStages.map((s) => ({ value: s, label: s })),
+                  ...stagesForCrop("ลำไย").map((s) => ({ value: s, label: s })),
+                  ...stagesForCrop("ทุเรียน").map((s) => ({ value: s, label: s })),
                 ]}
               />
             </div>
@@ -978,6 +991,7 @@ function CrmPage() {
                 <div className="rounded-xl border p-4">
                   <h3 className="text-sm font-semibold">บันทึกภายใน</h3>
                   <Textarea
+                    ref={noteRef}
                     defaultValue={customer.notes}
                     className="mt-2 min-h-24 rounded-xl text-sm"
                     key={customer.id}
@@ -986,9 +1000,11 @@ function CrmPage() {
                     size="sm"
                     variant="outline"
                     className="mt-2 rounded-xl"
-                    onClick={() => toast.success("บันทึกโน้ตแล้ว")}
+                    onClick={saveNote}
+                    disabled={savingNote}
                   >
-                    <MessageSquarePlus className="size-4" /> บันทึกโน้ต
+                    <MessageSquarePlus className="size-4" />
+                    {savingNote ? "กำลังบันทึก…" : "บันทึกโน้ต"}
                   </Button>
                 </div>
               </div>
@@ -1868,7 +1884,7 @@ function SellSheet({
 // CultivationForm — เพิ่ม/แก้ไขแปลงเพาะปลูก
 // ============================================================
 
-const DEFAULT_STAGE: CultivationStage = cultivationStages[0];
+const DEFAULT_STAGE = "เตรียมต้นหลังเก็บเกี่ยว";
 
 function CultivationForm({
   open,
@@ -1885,7 +1901,7 @@ function CultivationForm({
 }) {
   const isEdit = !!editTarget;
   const [crop, setCrop] = useState(DEFAULT_CROP);
-  const [stage, setStage] = useState<CultivationStage>(DEFAULT_STAGE);
+  const [stage, setStage] = useState<string>(DEFAULT_STAGE);
   const [area, setArea] = useState("1");
   const [location, setLocation] = useState("");
   const [plantedDate, setPlantedDate] = useState("");
@@ -1898,13 +1914,13 @@ function CultivationForm({
    * ใช้เฉพาะเมื่อพนักงานกดปุ่ม "ประมาณวันเริ่มรอบ" เท่านั้น (ไม่เติมอัตโนมัติ)
    * คืนค่าว่างถ้าระยะที่เลือกไม่อยู่ใน 12 ระยะหลัก
    */
-  const estimateDateForStage = (targetStage: CultivationStage): string => {
+  const estimateDateForStage = (targetStage: string): string => {
     // จับคู่ระยะที่เลือก (อาจเป็น sub-round) กับระยะหลัก
-    const mainName = stageNameFromId(stageIdByName[targetStage]) ?? null;
+    const mainName = stageNameFromId(stageIdForCrop(crop, targetStage)) ?? null;
     if (!mainName) return "";
     let elapsed = 0;
-    for (const s of cultivationStages) {
-      const mainForSub = stageNameFromId(stageIdByName[s]) ?? (s as string);
+    for (const s of stagesForCrop(crop)) {
+      const mainForSub = stageNameFromId(stageIdForCrop(crop, s)) ?? s;
       if (mainForSub === mainName) {
         elapsed += (stageDurationDays[mainForSub] ?? 0) / 2;
         break;
@@ -1918,8 +1934,11 @@ function CultivationForm({
 
   /** เปลี่ยนระยะ → เก็บค่าไว้ ไม่เติมวันอัตโนมัติ (วันไม่บังคับ) */
   const handleStageChange = (v: string) => {
-    setStage(v as CultivationStage);
+    setStage(v);
   };
+
+  // ระยะที่แสดงใน dropdown ตามพืชที่เลือก
+  const availableStages = stagesForCrop(crop);
 
   // โหลดค่าจาก editTarget เมื่อเปิดฟอร์ม
   useEffect(() => {
@@ -1943,6 +1962,15 @@ function CultivationForm({
       }
     }
   }, [open, editTarget]);
+
+  // เมื่อเปลี่ยน crop → reset stage ให้ตรงกับระยะแรกของพืชนั้น
+  useEffect(() => {
+    const stages = stagesForCrop(crop);
+    const first = stages[0];
+    if (first && !stages.includes(stage)) {
+      setStage(first);
+    }
+  }, [crop, stage]);
 
   const submit = async () => {
     if (!crop.trim()) {
@@ -1970,13 +1998,13 @@ function CultivationForm({
           plantedDate,
           expectedHarvest,
           note: note.trim() || undefined,
-          stageId: stageIdByName[stage],
+          stageId: stageIdForCrop(crop, stage),
           currentSequence: stage === editTarget.stage ? editTarget.currentSequence : undefined,
         });
         toast.success(`แก้ไขแปลง ${crop.trim()} แล้ว`);
       } else {
         await cultivationsApi.create({
-          id: `cul-${Date.now()}`,
+          id: `cul-${crypto.randomUUID()}`,
           customerId,
           crop: crop.trim(),
           stage,
@@ -1985,7 +2013,7 @@ function CultivationForm({
           plantedDate,
           expectedHarvest,
           note: note.trim() || undefined,
-          stageId: stageIdByName[stage],
+          stageId: stageIdForCrop(crop, stage),
         });
         toast.success(`เพิ่มแปลง ${crop.trim()} แล้ว`);
       }
@@ -2015,19 +2043,19 @@ function CultivationForm({
           {/* พืช + ช่วงการปลูก */}
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1.5">
-              <Label className="text-xs font-semibold">พืช (ลำไย) *</Label>
-              <Input
-                value={crop}
-                onChange={(e) => setCrop(e.target.value)}
-                placeholder="เช่น ลำไย อีดอ"
-                list="crop-list"
-                className="rounded-xl"
-              />
-              <datalist id="crop-list">
-                {readyCropPrograms.map((c) => (
-                  <option key={c.id} value={c.name} />
-                ))}
-              </datalist>
+              <Label className="text-xs font-semibold">พืช *</Label>
+              <Select value={crop} onValueChange={(v) => setCrop(v)}>
+                <SelectTrigger className="rounded-xl">
+                  <SelectValue placeholder="เลือกพืช" />
+                </SelectTrigger>
+                <SelectContent>
+                  {readyCropPrograms.map((c) => (
+                    <SelectItem key={c.id} value={c.name}>
+                      {c.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label className="text-xs font-semibold">ระยะ / ครั้งที่กำลังจะดูแล</Label>
@@ -2036,7 +2064,7 @@ function CultivationForm({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {cultivationStages.map((s) => (
+                  {availableStages.map((s) => (
                     <SelectItem key={s} value={s}>
                       {s}
                     </SelectItem>

@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Download,
   Plus,
@@ -12,6 +12,7 @@ import {
   Printer,
   Copy,
   RotateCcw,
+  Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -36,10 +37,24 @@ import {
   ContextMenuTrigger,
   ContextMenuSeparator,
 } from "@/components/ui/context-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { compactCurrency, currency, numberFmt } from "@/lib/format";
 import { ordersApi } from "@/lib/api/orders";
 import { dashboardApi } from "@/lib/api/dashboard";
+import { settingsApi } from "@/lib/api/settings";
 import { exportToCSV } from "@/lib/export";
+import { printReceipt } from "@/lib/print";
+import { DEFAULT_STORE_SETTINGS } from "@/types";
+import type { Order } from "@/types";
 
 // ตัวกรองที่รับผ่าน URL — ทุก field เป็น optional เพื่อให้ <Link to="/sales"> ไม่ต้องส่ง search
 interface SalesSearch {
@@ -76,6 +91,7 @@ function SalesPage() {
   const [query, setQuery] = useState(search.q ?? "");
   const [status, setStatus] = useState(search.status ?? "all");
   const navigate = useNavigate();
+  const qc = useQueryClient();
 
   // ดึงคำสั่งขายจาก Supabase
   const { data: orders = [] } = useQuery({
@@ -88,6 +104,16 @@ function SalesPage() {
     queryKey: ["dashboard-stats"],
     queryFn: () => dashboardApi.stats(),
   });
+
+  // ดึงข้อมูลร้านสำหรับพิมพ์ใบเสร็จ
+  const { data: storeSettings = DEFAULT_STORE_SETTINGS } = useQuery({
+    queryKey: ["store-settings"],
+    queryFn: () => settingsApi.get(),
+  });
+
+  // state สำหรับ dialog ยกเลิกคำสั่งขาย
+  const [cancelTarget, setCancelTarget] = useState<Order | null>(null);
+  const [cancelling, setCancelling] = useState(false);
 
   const rows = useMemo(
     () =>
@@ -105,6 +131,79 @@ function SalesPage() {
   const monthSales = stats?.monthSales ?? 0;
   const avgOrderValue =
     orders.length > 0 ? orders.reduce((s, o) => s + o.total, 0) / orders.length : 0;
+
+  // พิมพ์ใบเสร็จจากรายการคำสั่งขาย — ดึง items แล้วเรียก printReceipt
+  const handlePrint = async (o: Order) => {
+    try {
+      const items = await ordersApi.getItems(o.id);
+      if (items.length === 0) {
+        toast.error("ไม่มีรายการสินค้าในคำสั่งขายนี้");
+        return;
+      }
+      const subtotal = items.reduce((s, l) => s + l.price * l.qty, 0);
+      printReceipt({
+        storeName: storeSettings.storeName,
+        storeAddress: storeSettings.storeAddress ?? undefined,
+        storePhone: storeSettings.storePhone ?? undefined,
+        taxId: storeSettings.taxId ?? undefined,
+        receiptNo: o.code,
+        date: o.date,
+        customer: o.customer,
+        salesperson: o.salesperson,
+        channel: o.channel,
+        lines: items.map((l) => ({
+          name: l.productName,
+          qty: l.qty,
+          price: l.price,
+        })),
+        subtotal,
+        total: subtotal,
+        payment: o.payment,
+      });
+      toast.success("เปิดหน้าต่างพิมพ์แล้ว — เลือกเครื่องพิมพ์เพื่อพิมพ์ใบเสร็จ");
+    } catch (e) {
+      toast.error("พิมพ์ใบเสร็จไม่สำเร็จ", { description: (e as Error).message });
+    }
+  };
+
+  // ทำสำเนาคำสั่งขาย — สร้างคำสั่งใหม่ด้วย items เดิม (ไม่หักสต็อก)
+  const handleDuplicate = async (o: Order) => {
+    try {
+      const items = await ordersApi.getItems(o.id);
+      const newCode = `SO-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-5)}`;
+      await ordersApi.create({
+        code: newCode,
+        customerId: o.customerId,
+        customerName: o.customer,
+        total: o.total,
+        items: items.length,
+        status: "pending",
+        channel: o.channel,
+        salesperson: o.salesperson,
+        payment: o.payment,
+      });
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      toast.success(`ทำสำเนาคำสั่งขายแล้ว: ${newCode}`);
+    } catch (e) {
+      toast.error("ทำสำเนาไม่สำเร็จ", { description: (e as Error).message });
+    }
+  };
+
+  // ยกเลิกคำสั่งขาย — อัปเดต status เป็น cancelled
+  const confirmCancel = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    try {
+      await ordersApi.updateStatus(cancelTarget.id, "cancelled");
+      qc.invalidateQueries({ queryKey: ["orders"] });
+      qc.invalidateQueries({ queryKey: ["dashboard-stats"] });
+      toast.success(`ยกเลิกคำสั่งขายแล้ว: ${cancelTarget.code}`);
+    } catch (e) {
+      toast.error("ยกเลิกไม่สำเร็จ", { description: (e as Error).message });
+    }
+    setCancelling(false);
+    setCancelTarget(null);
+  };
 
   return (
     <div className="space-y-5 p-4 sm:p-6">
@@ -259,16 +358,17 @@ function SalesPage() {
                       >
                         <Eye className="size-4" /> ดูรายละเอียด
                       </ContextMenuItem>
-                      <ContextMenuItem onSelect={() => toast("พิมพ์ใบเสร็จ: " + o.code)}>
+                      <ContextMenuItem onSelect={() => handlePrint(o)}>
                         <Printer className="size-4" /> พิมพ์ใบเสร็จ
                       </ContextMenuItem>
-                      <ContextMenuItem onSelect={() => toast.success("ทำสำเนาคำสั่งขายแล้ว")}>
+                      <ContextMenuItem onSelect={() => handleDuplicate(o)}>
                         <Copy className="size-4" /> ทำสำเนา
                       </ContextMenuItem>
                       <ContextMenuSeparator />
                       <ContextMenuItem
                         className="text-destructive"
-                        onSelect={() => toast.success("ยกเลิกคำสั่งขาย: " + o.code)}
+                        onSelect={() => setCancelTarget(o)}
+                        disabled={o.status === "cancelled" || o.status === "refunded"}
                       >
                         <RotateCcw className="size-4" /> ยกเลิกคำสั่งขาย
                       </ContextMenuItem>
@@ -282,6 +382,35 @@ function SalesPage() {
 
         <Pagination page={page} pages={pages} total={total} perPage={perPage} onPage={setPage} />
       </div>
+
+      {/* Dialog ยืนยันยกเลิกคำสั่งขาย */}
+      <AlertDialog open={!!cancelTarget} onOpenChange={(v) => !v && setCancelTarget(null)}>
+        <AlertDialogContent className="rounded-xl">
+          <AlertDialogHeader>
+            <AlertDialogTitle>ยกเลิกคำสั่งขาย</AlertDialogTitle>
+            <AlertDialogDescription>
+              คุณแน่ใจหรือไม่? คำสั่งขาย <span className="font-semibold">{cancelTarget?.code}</span>{" "}
+              จะถูกตั้งสถานะเป็น "ยกเลิก" และจะไม่สามารถกู้คืนได้
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="rounded-xl">ยกเลิก</AlertDialogCancel>
+            <AlertDialogAction
+              className="rounded-xl bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={confirmCancel}
+              disabled={cancelling}
+            >
+              {cancelling ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" /> กำลังยกเลิก…
+                </>
+              ) : (
+                "ยืนยันยกเลิก"
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
