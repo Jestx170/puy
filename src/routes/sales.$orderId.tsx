@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Download, Printer } from "lucide-react";
 import { toast } from "sonner";
@@ -18,43 +18,20 @@ import { DEFAULT_STORE_SETTINGS } from "@/types";
 import type { Product } from "@/types";
 
 export const Route = createFileRoute("/sales/$orderId")({
-  loader: async ({ params }) => {
-    try {
-      const order = await ordersApi.get(params.orderId);
-      return { order };
-    } catch {
-      throw notFound();
-    }
-  },
-  head: ({ loaderData }) => {
-    if (!loaderData) {
-      return {
-        meta: [{ title: "ไม่พบคำสั่งขาย — ปุ๋ยไทย CRM" }, { name: "robots", content: "noindex" }],
-      };
-    }
-    const o = loaderData.order;
-    return {
-      meta: [
-        { title: `${o.code} — คำสั่งขาย | ปุ๋ยไทย CRM` },
-        {
-          name: "description",
-          content: `รายละเอียดคำสั่งขาย ${o.code} ของ ${o.customer} มูลค่า ${currency(o.total)}`,
-        },
-        { property: "og:title", content: `${o.code} — คำสั่งขาย | ปุ๋ยไทย CRM` },
-        { property: "og:description", content: `${o.customer} · ${currency(o.total)}` },
-      ],
-    };
-  },
   component: OrderDetail,
 });
 
 function OrderDetail() {
-  const { order } = Route.useLoaderData();
+  const { orderId } = Route.useParams();
+  const { data: order, isLoading: orderLoading } = useQuery({
+    queryKey: ["orders", orderId],
+    queryFn: () => ordersApi.get(orderId),
+  });
 
-  // ดึงรายการสินค้าในออเดอร์จาก Supabase
   const { data: items = [] } = useQuery({
-    queryKey: ["order-items", order.id],
-    queryFn: () => ordersApi.getItems(order.id),
+    queryKey: ["order-items", orderId],
+    queryFn: () => ordersApi.getItems(orderId),
+    enabled: Boolean(order),
   });
 
   // ดึงสินค้าทั้งหมดเพื่อ map รูปภาพ/สำหรับแสดง
@@ -74,6 +51,14 @@ function OrderDetail() {
   );
 
   const subtotal = items.reduce((s, l) => s + l.price * l.qty, 0);
+
+  if (orderLoading) {
+    return <div className="p-6 text-sm text-muted-foreground">กำลังโหลดคำสั่งขาย...</div>;
+  }
+
+  if (!order) {
+    return <div className="p-6 text-sm text-muted-foreground">ไม่พบคำสั่งขายนี้</div>;
+  }
 
   return (
     <div className="space-y-5 p-4 sm:p-6">

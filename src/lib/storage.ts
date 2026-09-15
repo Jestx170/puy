@@ -3,7 +3,7 @@
 // อัปโหลด/ลบ/ดึง URL รูปสินค้าใน bucket "product-images"
 // ============================================================
 
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 
 const BUCKET = "product-images";
 
@@ -20,7 +20,7 @@ export async function uploadProductImage(
 ): Promise<string> {
   // ลบรูปเดิมถ้ามี
   if (oldPath) {
-    await supabase.storage
+    await localApi.storage
       .from(BUCKET)
       .remove([oldPath])
       .catch(() => {});
@@ -29,13 +29,13 @@ export async function uploadProductImage(
   const ext = file.name.split(".").pop()?.toLowerCase() ?? "jpg";
   const path = `${productId}-${Date.now()}.${ext}`;
 
-  const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
+  const { error } = await localApi.storage.from(BUCKET).upload(path, file, {
     contentType: file.type,
     upsert: false,
   });
   if (error) throw error;
 
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(path);
+  const { data } = localApi.storage.from(BUCKET).getPublicUrl(path);
   return data.publicUrl;
 }
 
@@ -43,13 +43,13 @@ export async function uploadProductImage(
  * ลบรูปสินค้าออกจาก Storage
  */
 export async function deleteProductImage(path: string): Promise<void> {
-  const { error } = await supabase.storage.from(BUCKET).remove([path]);
+  const { error } = await localApi.storage.from(BUCKET).remove([path]);
   if (error) throw error;
 }
 
 /**
  * แยก path ออกจาก public URL
- * เช่น "https://xxx.supabase.co/storage/v1/object/public/product-images/p1-123.jpg"
+ * เช่น "/api/storage/files/p1-123.jpg"
  * → "p1-123.jpg"
  */
 export function urlToPath(url: string): string {

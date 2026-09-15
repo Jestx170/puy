@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { createFileRoute, Link, notFound, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Pencil,
@@ -52,34 +52,6 @@ import type { Product } from "@/types";
 import { productsApi } from "@/lib/api/products";
 
 export const Route = createFileRoute("/products/$productId")({
-  // loader ดึงสินค้าจาก Supabase ก่อน render — ถ้าหาไม่เจอจะ 404
-  loader: async ({ params }) => {
-    const product = await productsApi.get(params.productId);
-    return { product };
-  },
-  head: ({ loaderData }) => {
-    if (!loaderData) {
-      return {
-        meta: [{ title: "ไม่พบสินค้า — ปุ๋ยไทย CRM" }, { name: "robots", content: "noindex" }],
-      };
-    }
-    const p = loaderData.product;
-    return {
-      meta: [
-        { title: `${p.name} — ปุ๋ยไทย CRM` },
-        {
-          name: "description",
-          content: `${p.name} (${p.sku}) หมวด ${p.category} ราคา ${currency(p.price)} คงเหลือ ${p.stock} ${p.unit}`,
-        },
-        { property: "og:title", content: `${p.name} — ปุ๋ยไทย CRM` },
-        { property: "og:type", content: "product" },
-        {
-          property: "og:description",
-          content: `${p.category} · ${p.brand} · ${currency(p.price)}`,
-        },
-      ],
-    };
-  },
   component: ProductDetail,
 });
 
@@ -115,18 +87,16 @@ function Field({
 }
 
 function ProductDetail() {
-  const { product: initial } = Route.useLoaderData();
+  const { productId } = Route.useParams();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { categories } = useCategories();
   const [editOpen, setEditOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
-  // ดึงข้อมูลสดจาก Supabase (มี loaderData เป็น placeholder กันกระตุก)
-  const { data: p = initial } = useQuery({
-    queryKey: ["products", initial.id],
-    queryFn: () => productsApi.get(initial.id),
-    placeholderData: initial,
+  const { data: p, isLoading } = useQuery({
+    queryKey: ["products", productId],
+    queryFn: () => productsApi.get(productId),
   });
 
   // ดึงรายการสินค้าทั้งหมดสำหรับ "สินค้าที่เกี่ยวข้อง"
@@ -134,6 +104,14 @@ function ProductDetail() {
     queryKey: ["products"],
     queryFn: () => productsApi.list(),
   });
+
+  if (isLoading) {
+    return <div className="p-6 text-sm text-muted-foreground">กำลังโหลดข้อมูลสินค้า...</div>;
+  }
+
+  if (!p) {
+    return <div className="p-6 text-sm text-muted-foreground">ไม่พบสินค้านี้</div>;
+  }
 
   const margin = Math.round(((p.price - p.cost) / p.price) * 100);
 

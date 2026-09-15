@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import type { Order, OrderItem, OrderStatus } from "@/types";
 
 function rowToOrder(r: DbOrder): Order {
@@ -45,7 +45,7 @@ export const ordersApi = {
     channel?: string | undefined;
     limit?: number;
   }): Promise<Order[]> {
-    let q = supabase.from("orders").select("*").order("date", { ascending: false });
+    let q = localApi.from("orders").select("*").order("date", { ascending: false });
     if (filter?.status && filter.status !== "all") q = q.eq("status", filter.status);
     if (filter?.channel && filter.channel !== "all") q = q.eq("channel", filter.channel);
     if (filter?.limit) q = q.limit(filter.limit);
@@ -55,14 +55,14 @@ export const ordersApi = {
   },
 
   async get(id: string): Promise<Order> {
-    const { data, error } = await supabase.from("orders").select("*").eq("id", id).single();
+    const { data, error } = await localApi.from("orders").select("*").eq("id", id).single();
     if (error) throw error;
     return rowToOrder(data as DbOrder);
   },
 
   /** ดึงคำสั่งซื้อทั้งหมดของลูกค้าคนหนึ่ง */
   async listByCustomer(customerId: string): Promise<Order[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("orders")
       .select("*")
       .eq("customer_id", customerId)
@@ -73,7 +73,7 @@ export const ordersApi = {
 
   /** ดึงรายการสินค้าในคำสั่งซื้อ */
   async getItems(orderId: string): Promise<OrderItem[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("order_items")
       .select("*")
       .eq("order_id", orderId)
@@ -93,7 +93,7 @@ export const ordersApi = {
     salesperson: string;
     payment: Order["payment"];
   }): Promise<Order> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("orders")
       .insert({
         id: `o-${Date.now()}`,
@@ -141,7 +141,7 @@ export const ordersApi = {
       price: l.price,
       cost: l.cost,
     }));
-    const { data, error } = await supabase.rpc("create_sale_transaction", {
+    const { data, error } = await localApi.rpc("create_sale_transaction", {
       p_order_id: o.id,
       p_code: o.code,
       p_customer_id: o.customerId,
@@ -158,7 +158,7 @@ export const ordersApi = {
   },
 
   async updateStatus(id: string, status: OrderStatus): Promise<Order> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("orders")
       .update({ status })
       .eq("id", id)

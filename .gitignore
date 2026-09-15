@@ -16,6 +16,17 @@ dist-ssr
 .nitro
 *.local
 
+# Python / desktop build
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+build/
+*.spec
+app.db
+app.db-*
+installer/Output/
+
 # Wrangler / Cloudflare
 .wrangler/
 .dev.vars

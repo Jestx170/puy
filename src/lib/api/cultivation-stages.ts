@@ -4,7 +4,7 @@
 // + ประวัติการดูแล (cultivation_schedules) + คำนวณรอบถัดไป
 // ============================================================
 
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import { stageRounds } from "@/types";
 import type {
   CropStage,
@@ -45,7 +45,7 @@ function rowToCropStage(r: DbCropStage): CropStage {
 export const cropStagesApi = {
   /** ดึงระยะทั้งหมดของพืชชนิดหนึ่ง (เรียงตาม sort_order) */
   async listByCrop(cropType = "ลำไย"): Promise<CropStage[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("crop_stages")
       .select("*")
       .eq("crop_type", cropType)
@@ -55,7 +55,7 @@ export const cropStagesApi = {
   },
 
   async get(id: string): Promise<CropStage> {
-    const { data, error } = await supabase.from("crop_stages").select("*").eq("id", id).single();
+    const { data, error } = await localApi.from("crop_stages").select("*").eq("id", id).single();
     if (error) throw error;
     return rowToCropStage(data as DbCropStage);
   },
@@ -86,7 +86,7 @@ function rowToStageProduct(r: DbStageProduct): StageProduct {
 export const stageProductsApi = {
   /** ดึงสินค้าทั้งหมดที่ใช้ในระยะหนึ่ง (เรียงตาม sequence) */
   async listByStage(stageId: string): Promise<StageProduct[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("stage_products")
       .select("*")
       .eq("stage_id", stageId)
@@ -97,7 +97,7 @@ export const stageProductsApi = {
 
   /** ดึงสินค้าของระยะ + sequence เฉพาะ (สำหรับรอบถัดไป) */
   async listByStageAndSequence(stageId: string, sequence: number): Promise<StageProduct[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("stage_products")
       .select("*")
       .eq("stage_id", stageId)
@@ -135,7 +135,7 @@ function rowToSchedule(r: DbCultivationSchedule): CultivationSchedule {
 export const cultivationSchedulesApi = {
   /** ดึงประวัติการดูแลของแปลงหนึ่ง (เรียงจากใหม่สุด) */
   async listByCultivation(cultivationId: string): Promise<CultivationSchedule[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("cultivation_schedules")
       .select("*")
       .eq("cultivation_id", cultivationId)
@@ -154,7 +154,7 @@ export const cultivationSchedulesApi = {
     notes?: string;
   }): Promise<CultivationSchedule> {
     const stage = await cropStagesApi.get(input.stageId);
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("cultivation_schedules")
       .insert({
         cultivation_id: input.cultivationId,
@@ -169,7 +169,7 @@ export const cultivationSchedulesApi = {
     if (error) throw error;
 
     // อัปเดต stage_id และ current_sequence ใน cultivations
-    const { error: updateError } = await supabase
+    const { error: updateError } = await localApi
       .from("cultivations")
       .update({ stage: stage.name, stage_id: input.stageId, current_sequence: input.sequence })
       .eq("id", input.cultivationId);
@@ -220,7 +220,7 @@ function rowToNextRound(r: DbNextRoundRow): NextRoundInfo {
 export const nextRoundApi = {
   /** ดึงข้อมูลรอบถัดไปของแปลงทั้งหมดของลูกค้าคนหนึ่ง */
   async listByCustomer(customerId: string): Promise<NextRoundInfo[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("v_cultivation_next_round")
       .select("*")
       .eq("customer_id", customerId);
@@ -252,7 +252,7 @@ async function mapToRecommended(items: StageProduct[]): Promise<RecommendedProdu
   const productIds = items.map((i) => i.productId).filter(Boolean) as string[];
   if (productIds.length === 0) return [];
 
-  const { data: products, error } = await supabase
+  const { data: products, error } = await localApi
     .from("products")
     .select("id, name, sku, price, stock")
     .in("id", productIds);
