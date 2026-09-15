@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import type { Promotion, PromotionKind, PromotionStatus, PromotionScopeType } from "@/types";
 
 interface DbPromotion {
@@ -55,7 +55,7 @@ function promotionToRow(p: Partial<Promotion>): Partial<DbPromotion> {
 
 export const promotionsApi = {
   async list(): Promise<Promotion[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("promotions")
       .select("*")
       .order("priority", { ascending: true });
@@ -66,7 +66,7 @@ export const promotionsApi = {
   /** ดึงเฉพาะโปรโมชันที่ active และอยู่ในช่วงเวลา — สำหรับ POS/ใบเสนอราคา */
   async listActive(): Promise<Promotion[]> {
     const today = new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("promotions")
       .select("*")
       .eq("status", "active")
@@ -79,7 +79,7 @@ export const promotionsApi = {
 
   async create(p: Omit<Promotion, "id" | "used">): Promise<Promotion> {
     const row = promotionToRow(p);
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("promotions")
       .insert({ ...row, used_count: 0 })
       .select("*")
@@ -90,7 +90,7 @@ export const promotionsApi = {
 
   async update(id: string, p: Partial<Promotion>): Promise<Promotion> {
     const row = promotionToRow(p);
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("promotions")
       .update(row)
       .eq("id", id)
@@ -101,13 +101,13 @@ export const promotionsApi = {
   },
 
   async remove(id: string): Promise<void> {
-    const { error } = await supabase.from("promotions").delete().eq("id", id);
+    const { error } = await localApi.from("promotions").delete().eq("id", id);
     if (error) throw new Error(error.message);
   },
 
   /** เพิ่มจำนวนการใช้งาน +1 */
   async incrementUsed(id: string): Promise<void> {
-    const { error } = await supabase.rpc("increment_promotion_used", { p_id: id });
+    const { error } = await localApi.rpc("increment_promotion_used", { p_id: id });
     if (error) throw new Error(error.message);
   },
 };

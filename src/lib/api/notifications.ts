@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import type { AppNotification } from "@/types";
 
 /** แปลง timestamp เป็นข้อความระยะเวลาแบบอ่านง่าย เช่น "10 นาที" */
@@ -23,7 +23,7 @@ function rowToNotification(r: DbNotification): AppNotification {
 
 export const notificationsApi = {
   async list(limit = 10): Promise<AppNotification[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("notifications")
       .select("*")
       .order("created_at", { ascending: false })
@@ -33,13 +33,13 @@ export const notificationsApi = {
   },
 
   async markRead(id: string): Promise<void> {
-    const { error } = await supabase.from("notifications").update({ unread: false }).eq("id", id);
+    const { error } = await localApi.from("notifications").update({ unread: false }).eq("id", id);
     if (error) throw error;
   },
 
   /** ทำเครื่องหมายอ่านทั้งหมด — คืนจำนวนรายการที่เปลี่ยน */
   async markAllRead(): Promise<number> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("notifications")
       .update({ unread: false })
       .eq("unread", true)

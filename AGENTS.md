@@ -11,7 +11,7 @@
 
 # Fieldstone ERP (ปุ๋ยไทย CRM)
 
-ระบบ ERP/CRM สำหรับร้านค้าเกษตร — TanStack Start + React 19 + Tailwind v4 + shadcn/ui + Supabase
+ระบบ ERP/CRM สำหรับร้านค้าเกษตร — React 19 + Vite SPA + Tailwind v4 + shadcn/ui + FastAPI + SQLite + PyInstaller
 
 ## คำสั่งที่ใช้บ่อย
 
@@ -71,17 +71,18 @@ src/
 │       └── InventoryOpsPage.tsx  # component ร่วมของ 6 หน้าคลัง
 │
 ├── lib/
-│   ├── api/                 # Supabase data layer (แยกตาม domain)
+│   ├── api/                 # REST data layer แยกตาม domain
 │   │   ├── index.ts         # barrel export — import { productsApi } from "@/lib/api"
-│   │   ├── products.ts      # CRUD + adjustStock (RPC) + safe delete (RPC)
+│   │   ├── client.ts        # fetch wrapper สำหรับ FastAPI
+│   │   ├── products.ts      # CRUD + stock movement + safe delete
 │   │   ├── warehouses.ts
-│   │   ├── movements.ts     # create via RPC record_stock_movement (atomic)
+│   │   ├── movements.ts
 │   │   ├── customers.ts     # + cultivationsApi
-│   │   ├── orders.ts        # + createSaleTransaction (RPC atomic) + getItems
+│   │   ├── orders.ts        # + atomic sale transaction
 │   │   ├── activities.ts
 │   │   ├── notifications.ts
 │   │   └── dashboard.ts     # stats + charts + top products/customers
-│   ├── supabase.ts          # Supabase client
+│   ├── local-api.ts         # local REST compatibility adapter
 │   ├── auth.tsx             # auth context (localStorage, admin/admin123)
 │   ├── format.ts            # currency, compactCurrency, numberFmt
 │   ├── export.ts            # toCSV, downloadCSV, exportToCSV
@@ -95,8 +96,12 @@ src/
 └── hooks/
     └── use-mobile.tsx
 
-supabase/
-└── schema.sql               # SQL schema ทั้งหมด (ตาราง + views + RPCs + triggers + RLS + seed) — รันครั้งเดียว
+backend/
+├── app.py                  # FastAPI routes + static SPA server
+├── db.py                   # SQLite connection + initialization
+├── schema.sql              # SQLite schema + seed data
+├── services.py             # atomic stock/sale/product services
+└── build.py                # PyInstaller packaging
 ```
 
 ## แนวทางการเขียนโค้ด
@@ -106,10 +111,10 @@ supabase/
 - ไม่มี `src/data/mock.ts` อีกต่อไป — ลบออกแล้วใน Phase 2 (production-ready)
 
 ### Data fetching
-- ใช้ `useQuery` จาก `@tanstack/react-query` ดึงข้อมูลจาก Supabase
+- ใช้ `useQuery` จาก `@tanstack/react-query` ดึงข้อมูลผ่าน FastAPI REST API
 - **ไม่มี mock fallback อีกต่อไป** — ใช้ default value เป็น empty array `[]` หรือ `undefined`
 - data layer แปลง snake_case (DB) ↔ camelCase (TS) ให้เอง
-- การเขียน/แก้ข้อมูลที่สำคัญ (POS checkout, stock adjustment) ใช้ RPC function เพื่อ atomicity
+- การเขียน/แก้ข้อมูลที่สำคัญ (POS checkout, stock adjustment) ใช้ SQLite transaction ใน `backend/services.py`
 
 ```tsx
 const { data: list = [], isLoading } = useQuery({
@@ -131,28 +136,25 @@ const { data: list = [], isLoading } = useQuery({
 - ใช้ `AlertDialog` สำหรับ action ที่ทำลายข้อมูล ไม่ใช่แค่ toast
 - ปุ่ม/การ์ดใช้ `rounded-xl`, การ์ดใช้ class `card-soft`
 
-## Supabase
+## FastAPI + SQLite
 
-- ตั้งค่าใน `.env`: `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`
-- รัน `supabase/schema.sql` ใน Supabase Dashboard → SQL Editor (ครั้งเดียว รันซ้ำได้)
-- schema รวมทุกอย่าง: ตาราง, views, RPCs, triggers, RLS, storage bucket, seed data
-- RPC functions: `create_sale_transaction`, `record_stock_movement`, `delete_product_safe`,
-  `increment_promotion_used`, `record_care_atomic`, `notify_expiring_products`
-- RLS อนุญาต anon ทุกตาราง (single-user app)
-- trigger `calc_product_status` คำนวณ `products.status` จาก stock/min_stock อัตโนมัติ
-- trigger `recalc_warehouse_main` sync warehouses aggregate หลัง products เปลี่ยน
-- RPC `create_sale_transaction` — POS checkout แบบ atomic (order + items + stock + customer + activity)
-- RPC `record_stock_movement` — stock in/out/adjustment แบบ atomic + audit trail
-- RPC `delete_product_safe` — soft delete ถ้ามีประวัติขาย, hard delete ถ้าไม่มี
+- ตั้งค่า optional ใน `.env`: `VITE_API_BASE=/api`
+- schema อยู่ที่ `backend/schema.sql` และ initialize อัตโนมัติเมื่อ backend เริ่มทำงาน
+- ฐานข้อมูล production อยู่ใน user data directory ไม่ใช่ข้าง executable
+- business transaction สำคัญอยู่ที่ `backend/services.py`
+- `record_stock_movement` รองรับ weighted-average cost, expiry และป้องกัน stock ติดลบ
+- `create_sale_transaction` ทำ order, items, stock, customer totals และ activity ใน transaction เดียว
+- รูปสินค้าเก็บใน local data directory ผ่าน FastAPI storage endpoint
+- ระบบออกแบบสำหรับ single-user/local desktop ไม่รองรับการแชร์ SQLite file ให้หลายเครื่องเขียนพร้อมกัน
 
-### การรัน schema
+### คำสั่ง backend
 
+```bash
+python -m venv .venv
+.venv/bin/pip install -r backend/requirements.txt
+python backend/app.py
+npm run desktop:build
 ```
-รัน supabase/schema.sql ครั้งเดียวใน Supabase Dashboard → SQL Editor (รันซ้ำได้, ใช้ on conflict do nothing)
-```
-
-schema.sql รวมทุกอย่างในไฟล์เดียว: ตาราง, indexes, views, RPCs, triggers, RLS, storage bucket, seed data
-ไม่ต้องรัน migration แยกหลายไฟล์อีกต่อไป
 
 ## โปรโมชัน (Promotions)
 

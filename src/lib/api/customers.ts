@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import { cultivationStageSelection, cultivationStageStorage } from "@/types";
 import type { Customer, Cultivation, MemberTier } from "@/types";
 
@@ -24,19 +24,19 @@ function rowToCustomer(r: DbCustomer): Customer {
 
 export const customersApi = {
   async list(): Promise<Customer[]> {
-    const { data, error } = await supabase.from("customers").select("*").order("name");
+    const { data, error } = await localApi.from("customers").select("*").order("name");
     if (error) throw error;
     return (data as DbCustomer[]).map(rowToCustomer);
   },
 
   async get(id: string): Promise<Customer> {
-    const { data, error } = await supabase.from("customers").select("*").eq("id", id).single();
+    const { data, error } = await localApi.from("customers").select("*").eq("id", id).single();
     if (error) throw error;
     return rowToCustomer(data as DbCustomer);
   },
 
   async create(c: Customer): Promise<Customer> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("customers")
       .insert({
         id: c.id,
@@ -73,7 +73,7 @@ export const customersApi = {
     if (patch.lastOrder !== undefined) row["last_order"] = patch.lastOrder || null;
     if (patch.notes !== undefined) row["notes"] = patch.notes;
     if (patch.tags !== undefined) row["tags"] = patch.tags;
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("customers")
       .update(row)
       .eq("id", id)
@@ -84,7 +84,7 @@ export const customersApi = {
   },
 
   async remove(id: string): Promise<void> {
-    const { error } = await supabase.from("customers").delete().eq("id", id);
+    const { error } = await localApi.from("customers").delete().eq("id", id);
     if (error) throw error;
   },
 };
@@ -107,7 +107,7 @@ function rowToCultivation(r: DbCultivation): Cultivation {
 
 export const cultivationsApi = {
   async listAll(): Promise<(Cultivation & { customerId: string })[]> {
-    const { data, error } = await supabase.from("cultivations").select("*");
+    const { data, error } = await localApi.from("cultivations").select("*");
     if (error) throw error;
     return (data as DbCultivation[]).map((r) => ({
       ...rowToCultivation(r),
@@ -116,7 +116,7 @@ export const cultivationsApi = {
   },
 
   async listByCustomer(customerId: string): Promise<Cultivation[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("cultivations")
       .select("*")
       .eq("customer_id", customerId)
@@ -127,7 +127,7 @@ export const cultivationsApi = {
 
   async create(c: Cultivation & { customerId: string }): Promise<Cultivation> {
     const stored = cultivationStageStorage(c.stage, c.currentSequence, c.crop);
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("cultivations")
       .insert({
         id: c.id,
@@ -165,7 +165,7 @@ export const cultivationsApi = {
     if (patch.note !== undefined) row["note"] = patch.note ?? null;
     if (patch.stageId !== undefined) row["stage_id"] = patch.stageId ?? null;
     if (patch.currentSequence !== undefined) row["current_sequence"] = patch.currentSequence;
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("cultivations")
       .update(row)
       .eq("id", id)
@@ -176,7 +176,7 @@ export const cultivationsApi = {
   },
 
   async remove(id: string): Promise<void> {
-    const { error } = await supabase.from("cultivations").delete().eq("id", id);
+    const { error } = await localApi.from("cultivations").delete().eq("id", id);
     if (error) throw error;
   },
 };

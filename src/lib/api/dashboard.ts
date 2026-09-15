@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import type { Product } from "@/types";
 import { productsApi } from "./products";
 
@@ -58,7 +58,7 @@ export interface BestCustomer {
 
 export const dashboardApi = {
   async stats(): Promise<DashboardStats> {
-    const { data, error } = await supabase.from("v_dashboard_stats").select("*").limit(1).single();
+    const { data, error } = await localApi.from("v_dashboard_stats").select("*").limit(1).single();
     if (error) throw error;
     const r = data as DbDashboardStats;
     return {
@@ -75,7 +75,7 @@ export const dashboardApi = {
   },
 
   async profitByDay(): Promise<ProfitByDay[]> {
-    const { data, error } = await supabase.from("v_profit_by_day").select("*");
+    const { data, error } = await localApi.from("v_profit_by_day").select("*");
     if (error) throw error;
     const dayMap: Record<string, string> = {
       Mon: "จ.",
@@ -95,7 +95,7 @@ export const dashboardApi = {
   },
 
   async profitByMonth(): Promise<ProfitByMonth[]> {
-    const { data, error } = await supabase.from("v_profit_by_month").select("*");
+    const { data, error } = await localApi.from("v_profit_by_month").select("*");
     if (error) throw error;
     return (data as DbProfitByMonth[]).map((r) => ({
       month: r.month,
@@ -106,7 +106,7 @@ export const dashboardApi = {
   },
 
   async salesByDay(): Promise<SalesByDay[]> {
-    const { data, error } = await supabase.from("v_sales_by_day").select("*");
+    const { data, error } = await localApi.from("v_sales_by_day").select("*");
     if (error) throw error;
     // แปลง day_short (Dy) เป็นชื่อวันภาษาไทย
     const dayMap: Record<string, string> = {
@@ -126,7 +126,7 @@ export const dashboardApi = {
   },
 
   async revenueTrend(): Promise<RevenueTrend[]> {
-    const { data, error } = await supabase.from("v_revenue_trend").select("*");
+    const { data, error } = await localApi.from("v_revenue_trend").select("*");
     if (error) throw error;
     return (data as DbRevenueTrend[]).map((r) => ({
       month: r.month,
@@ -136,7 +136,7 @@ export const dashboardApi = {
   },
 
   async topProducts(): Promise<TopProduct[]> {
-    const { data, error } = await supabase.from("v_top_products").select("*");
+    const { data, error } = await localApi.from("v_top_products").select("*");
     if (error) throw error;
     return (data as DbTopProduct[]).map((r) => ({
       id: r.id,
@@ -158,7 +158,7 @@ export const dashboardApi = {
   },
 
   async bestCustomers(): Promise<BestCustomer[]> {
-    const { data, error } = await supabase.from("v_best_customers").select("*");
+    const { data, error } = await localApi.from("v_best_customers").select("*");
     if (error) throw error;
     return (data as DbBestCustomer[]).map((r) => ({
       id: r.id,

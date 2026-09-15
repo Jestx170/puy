@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import type { Product, ProductStatus } from "@/types";
 
 // แปลง row จาก Supabase (snake_case) เป็น Product (camelCase)
@@ -45,7 +45,7 @@ function productToRow(p: Partial<Product>): Partial<DbProduct> {
 export const productsApi = {
   async list(): Promise<Product[]> {
     // กรองสินค้าที่ถูก soft delete ออก
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("products")
       .select("*")
       .is("deleted_at", null)
@@ -55,13 +55,13 @@ export const productsApi = {
   },
 
   async get(id: string): Promise<Product> {
-    const { data, error } = await supabase.from("products").select("*").eq("id", id).single();
+    const { data, error } = await localApi.from("products").select("*").eq("id", id).single();
     if (error) throw error;
     return rowToProduct(data as DbProduct);
   },
 
   async create(p: Product): Promise<Product> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("products")
       .insert(productToRow(p))
       .select()
@@ -71,7 +71,7 @@ export const productsApi = {
   },
 
   async update(id: string, patch: Partial<Product>): Promise<Product> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("products")
       .update(productToRow(patch))
       .eq("id", id)
@@ -88,7 +88,7 @@ export const productsApi = {
    * คืนค่า 'soft' หรือ 'hard'
    */
   async remove(id: string): Promise<"soft" | "hard"> {
-    const { data, error } = await supabase.rpc("delete_product_safe", { p_product_id: id });
+    const { data, error } = await localApi.rpc("delete_product_safe", { p_product_id: id });
     if (error) throw error;
     return data as "soft" | "hard";
   },
@@ -111,7 +111,7 @@ export const productsApi = {
     },
   ): Promise<Product> {
     const type = opts?.type ?? (delta >= 0 ? "รับเข้า" : "จ่ายออก");
-    const { error } = await supabase.rpc("record_stock_movement", {
+    const { error } = await localApi.rpc("record_stock_movement", {
       p_product_id: id,
       p_type: type,
       p_qty: Math.abs(delta),
@@ -128,7 +128,7 @@ export const productsApi = {
    * คืนค่าเรียงตามวันหมดอายุใกล้สุดก่อน
    */
   async expiring(): Promise<ExpiringProduct[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("v_expiring_products")
       .select("*")
       .order("expiry_date", { ascending: true });

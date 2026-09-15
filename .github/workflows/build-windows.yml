@@ -1,0 +1,28 @@
+name: Build Windows Installer
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: npm run build
+      - run: python -m pip install -r backend/requirements.txt
+      - run: python backend/build.py
+      - run: choco install innosetup -y
+      - run: iscc installer/installer.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: FieldstoneERP-Windows
+          path: installer/Output/*.exe

@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import type { ActivityItem } from "@/types";
 
 function rowToActivity(r: DbActivity): ActivityItem {
@@ -22,7 +22,7 @@ function rowToActivity(r: DbActivity): ActivityItem {
 
 export const activitiesApi = {
   async list(limit = 10): Promise<ActivityItem[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("activities")
       .select("*")
       .order("created_at", { ascending: false })
@@ -37,7 +37,7 @@ export const activitiesApi = {
     target?: string;
     kind?: ActivityItem["kind"];
   }): Promise<void> {
-    const { error } = await supabase.from("activities").insert({
+    const { error } = await localApi.from("activities").insert({
       actor: a.actor,
       action: a.action,
       target: a.target ?? "",

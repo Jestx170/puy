@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import { DEFAULT_STORE_SETTINGS, type StoreSettings } from "@/types";
 
 interface DbStoreSettings {
@@ -35,7 +35,7 @@ function settingsToRow(s: Partial<StoreSettings>): Partial<DbStoreSettings> {
 export const settingsApi = {
   /** ดึงข้อมูลร้าน (single row id = 1) — คืน default ถ้ายังไม่มี row */
   async get(): Promise<StoreSettings> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("store_settings")
       .select("*")
       .eq("id", 1)
@@ -52,7 +52,7 @@ export const settingsApi = {
   /** บันทึกข้อมูลร้าน (upsert single row id = 1) */
   async update(s: Partial<StoreSettings>): Promise<StoreSettings> {
     const row = { ...settingsToRow(s), id: 1, updated_at: new Date().toISOString() };
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("store_settings")
       .upsert(row, { onConflict: "id" })
       .select("*")

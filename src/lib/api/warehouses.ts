@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 
 export interface Warehouse {
   id: string;
@@ -20,7 +20,7 @@ function rowToWarehouse(r: DbWarehouse): Warehouse {
 
 export const warehousesApi = {
   async list(): Promise<Warehouse[]> {
-    const { data, error } = await supabase.from("warehouses").select("*").order("name");
+    const { data, error } = await localApi.from("warehouses").select("*").order("name");
     if (error) throw error;
     return (data as DbWarehouse[]).map(rowToWarehouse);
   },

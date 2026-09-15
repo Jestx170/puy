@@ -1,4 +1,4 @@
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import { productCategories } from "@/lib/constants";
 
 export interface Category {
@@ -9,7 +9,7 @@ export interface Category {
 
 export const categoriesApi = {
   async list(): Promise<string[]> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("categories")
       .select("*")
       .order("sort_order", { ascending: true });
@@ -20,7 +20,7 @@ export const categoriesApi = {
   },
 
   async create(name: string): Promise<string> {
-    const { data, error } = await supabase
+    const { data, error } = await localApi
       .from("categories")
       .insert({ name: name.trim() })
       .select("name")
@@ -30,7 +30,7 @@ export const categoriesApi = {
   },
 
   async remove(name: string): Promise<void> {
-    const { error } = await supabase.from("categories").delete().eq("name", name);
+    const { error } = await localApi.from("categories").delete().eq("name", name);
     if (error) throw error;
   },
 };

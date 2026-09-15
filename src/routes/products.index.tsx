@@ -45,7 +45,7 @@ import type { Product, ProductStatus } from "@/types";
 import { productsApi } from "@/lib/api/products";
 import { categoriesApi } from "@/lib/api/categories";
 import { useCategories } from "@/hooks/useCategories";
-import { supabase } from "@/lib/supabase";
+import { localApi } from "@/lib/local-api";
 import { exportToCSV } from "@/lib/export";
 import { uploadProductImage } from "@/lib/storage";
 import { ProductImage } from "@/components/common/ProductImage";
@@ -128,7 +128,7 @@ function ProductsPage() {
       // ถ้ามีสต็อกเริ่มต้น > 0 ให้ insert stock_movement ตรงๆ (ไม่ผ่าน RPC เพื่อลดความเสี่ยง)
       if (p.stock > 0) {
         try {
-          await supabase.from("stock_movements").insert({
+          await localApi.from("stock_movements").insert({
             code: `IN-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Date.now().toString().slice(-5)}`,
             type: "รับเข้า",
             product_id: created.id,
